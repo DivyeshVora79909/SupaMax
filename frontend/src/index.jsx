@@ -7,10 +7,14 @@ import DashboardLayout from "./layouts/DashboardLayout";
 
 // Lazy load pages
 const Dashboard = lazy(() => import("./pages/Dashboard"));
-const Projects = lazy(() => import("./pages/Projects"));
-const ProjectDetail = lazy(() => import("./pages/ProjectDetail"));
-const Team = lazy(() => import("./pages/Team"));
 const Login = lazy(() => import("./pages/Login"));
+const Signup = lazy(() => import("./pages/Signup")); // <--- Import Signup
+const Team = lazy(() => import("./pages/Team"));
+
+// CRM Pages
+const Deals = lazy(() => import("./pages/crm/Deals"));
+const Contacts = lazy(() => import("./pages/crm/Contacts"));
+const Companies = lazy(() => import("./pages/crm/Companies"));
 
 // Auth Guard Wrapper
 const Protected = (props) => {
@@ -25,15 +29,18 @@ render(
   () => (
     <Router>
       <Route path="/login" component={Login} />
-
+      <Route path="/signup" component={Signup} /> {/* <--- Add Route */}
       <Route path="/" component={Protected}>
         <Route path="/" component={Dashboard} />
-        <Route path="/projects" component={Projects} />
-        <Route path="/projects/:id" component={ProjectDetail} />
+        <Route path="/deals" component={Deals} />
+        <Route path="/contacts" component={Contacts} />
+        <Route path="/companies" component={Companies} />
         <Route path="/team" component={Team} />
         <Route
           path="/settings"
-          component={() => <div>Settings Placeholder</div>}
+          component={() => (
+            <div class="p-8 text-slate-500">Settings Placeholder</div>
+          )}
         />
       </Route>
     </Router>

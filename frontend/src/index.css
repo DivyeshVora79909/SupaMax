@@ -1,17 +1,21 @@
 @import "tailwindcss";
 
 :root {
-  font-family: "roboto", sans-serif;
+  font-family: "Inter", system-ui, sans-serif;
 }
 
 body {
   @apply bg-slate-50 text-slate-900;
 }
 
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
+/* Custom Scrollbar for Kanban */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
 }
-.no-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #e2e8f0;
+  border-radius: 20px;
 }
