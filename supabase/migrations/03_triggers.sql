@@ -1,11 +1,9 @@
--- 1. HIERARCHY MAINTENANCE
-CREATE OR REPLACE FUNCTION public.rebuild_role_closure()
-RETURNS TRIGGER AS $$
+-- 1. HIERARCHY MAINTENANCE (UNCHANGED)
+CREATE OR REPLACE FUNCTION public.rebuild_role_closure() RETURNS TRIGGER AS $$
 DECLARE v_org uuid;
 BEGIN
   IF TG_OP = 'DELETE' THEN v_org := OLD.org_id; ELSE v_org := COALESCE(NEW.org_id, OLD.org_id); END IF;
   DELETE FROM public.role_closure WHERE org_id = v_org;
-
   WITH RECURSIVE hierarchy AS (
     SELECT org_id, parent_role_id, child_role_id, 1 AS depth FROM public.role_hierarchy WHERE org_id = v_org
     UNION ALL
@@ -14,7 +12,6 @@ BEGIN
   )
   INSERT INTO public.role_closure (org_id, parent_role_id, child_role_id, depth)
   SELECT DISTINCT org_id, parent_role_id, child_role_id, depth FROM hierarchy ON CONFLICT DO NOTHING;
-
   INSERT INTO public.role_closure (org_id, parent_role_id, child_role_id, depth)
   SELECT org_id, id, id, 0 FROM public.roles WHERE org_id = v_org ON CONFLICT DO NOTHING;
   RETURN NULL;
@@ -24,7 +21,6 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER on_hierarchy_change AFTER INSERT OR UPDATE OR DELETE ON public.role_hierarchy
 FOR EACH ROW EXECUTE FUNCTION public.rebuild_role_closure();
 
--- Prevent Cycles
 CREATE OR REPLACE FUNCTION check_hierarchy_cycle() RETURNS TRIGGER AS $$
 BEGIN
     IF NEW.parent_role_id = NEW.child_role_id THEN RAISE EXCEPTION 'Role cannot be its own parent.'; END IF;
@@ -38,7 +34,9 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER enforce_acyclic_hierarchy BEFORE INSERT OR UPDATE ON public.role_hierarchy
 FOR EACH ROW EXECUTE FUNCTION check_hierarchy_cycle();
 
--- 2. AUTOMATIC METADATA
+-- =========================================================
+-- 2. AUTOMATIC METADATA (UPDATED FOR CRM)
+-- =========================================================
 CREATE OR REPLACE FUNCTION set_rls_metadata() RETURNS TRIGGER AS $$
 DECLARE user_meta RECORD;
 BEGIN
@@ -50,10 +48,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER set_projects_meta BEFORE INSERT ON public.projects FOR EACH ROW EXECUTE FUNCTION set_rls_metadata();
-CREATE TRIGGER set_tasks_meta BEFORE INSERT ON public.tasks FOR EACH ROW EXECUTE FUNCTION set_rls_metadata();
+-- Attach to CRM Tables
+CREATE TRIGGER set_companies_meta BEFORE INSERT ON public.crm_companies FOR EACH ROW EXECUTE FUNCTION set_rls_metadata();
+CREATE TRIGGER set_contacts_meta BEFORE INSERT ON public.crm_contacts FOR EACH ROW EXECUTE FUNCTION set_rls_metadata();
+CREATE TRIGGER set_deals_meta BEFORE INSERT ON public.crm_deals FOR EACH ROW EXECUTE FUNCTION set_rls_metadata();
+CREATE TRIGGER set_activities_meta BEFORE INSERT ON public.crm_activities FOR EACH ROW EXECUTE FUNCTION set_rls_metadata();
 
--- 3. AUTH SIGNUP HANDLER
+
+-- 3. AUTH SIGNUP HANDLER (UNCHANGED - BUT NOW GRANTS CRM PERMISSIONS)
 CREATE OR REPLACE FUNCTION handle_new_user_signup()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -70,7 +72,7 @@ BEGIN
     INSERT INTO public.roles (org_id, name, description, is_system) VALUES (v_org_id, 'Owner', 'Full access', TRUE) RETURNING id INTO v_role_owner_id;
     INSERT INTO public.roles (org_id, name, description, is_system) VALUES (v_org_id, 'Member', 'Standard access', TRUE) RETURNING id INTO v_role_member_id;
 
-    -- Assign Permissions
+    -- Assign Permissions (Owner gets ALL, Member gets READ only)
     INSERT INTO public.role_permissions (role_id, permission_id) SELECT v_role_owner_id, id FROM public.permissions;
     INSERT INTO public.role_permissions (role_id, permission_id) SELECT v_role_member_id, id FROM public.permissions WHERE code LIKE '%.read';
 
@@ -78,7 +80,7 @@ BEGIN
     INSERT INTO public.profiles (id, full_name, org_id, role_id)
     VALUES (new.id, new.raw_user_meta_data->>'full_name', v_org_id, v_role_owner_id);
 
-    -- Update Org Owner (Circular Link)
+    -- Update Org Owner
     UPDATE public.organizations SET owner_profile_id = new.id WHERE id = v_org_id;
 
     -- Init Closure

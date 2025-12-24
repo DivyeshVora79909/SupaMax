@@ -1,27 +1,35 @@
 INSERT INTO public.permissions (code, description) VALUES
--- Organization
-('orgs.read',    'Can view organization details'),
-('orgs.write',   'Can update organization settings'),
+-- System
+('orgs.read', 'Can view org'),
+('orgs.write', 'Can edit org'),
 
--- Roles & Permissions
-('roles.read',   'Can view roles and hierarchy'),
-('roles.write',  'Can create and edit roles'),
+('roles.read', 'Can view roles'),
+('roles.write', 'Can edit roles'),
 ('roles.delete', 'Can delete roles'),
 
--- Profiles (Members)
-('profiles.read',   'Can view member profiles'),
-('profiles.write',  'Can invite or edit members'),
-('profiles.delete', 'Can remove members from organization'),
+('profiles.read', 'Can view profiles'),
+('profiles.write', 'Can edit profiles'),
+('profiles.delete', 'Can kick members'),
 
--- Projects
-('projects.read',   'Can view projects'),
-('projects.write',  'Can create and edit projects'),
-('projects.delete', 'Can delete projects'),
+-- CRM: Companies
+('crm_companies.read', 'View companies'),
+('crm_companies.write', 'Create/Edit companies'),
+('crm_companies.delete', 'Delete companies'),
 
--- Tasks
-('tasks.read',   'Can view tasks'),
-('tasks.write',  'Can create and edit tasks'),
-('tasks.delete', 'Can delete tasks')
+-- CRM: Contacts
+('crm_contacts.read', 'View contacts'),
+('crm_contacts.write', 'Create/Edit contacts'),
+('crm_contacts.delete', 'Delete contacts'),
+
+-- CRM: Deals
+('crm_deals.read', 'View deals'),
+('crm_deals.write', 'Create/Edit deals'),
+('crm_deals.delete', 'Delete deals'),
+
+-- CRM: Activities
+('crm_activities.read', 'View activities'),
+('crm_activities.write', 'Log activities'),
+('crm_activities.delete', 'Delete activities')
 
 ON CONFLICT (code) DO UPDATE 
 SET description = EXCLUDED.description;
