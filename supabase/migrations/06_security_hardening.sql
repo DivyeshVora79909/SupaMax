@@ -17,8 +17,14 @@ BEGIN
     INSERT INTO public.organizations (name, plan)
     VALUES (COALESCE(new.raw_user_meta_data->>'company_name', 'My Organization'), 'free')
     RETURNING id INTO v_org_id;
+    
+    -- 2. SUBSCRIBE TO MODULES (New Step)
+    -- By default, give them Core and CRM.
+    INSERT INTO public.org_subscriptions (org_id, module_code) VALUES 
+    (v_org_id, 'core'),
+    (v_org_id, 'crm');
 
-    -- 2. Create Default Activity Types (Industry Standard)
+    -- 3. Create Default Activity Types
     INSERT INTO public.crm_activity_types (org_id, name, icon, color, is_system) VALUES
     (v_org_id, 'Call', 'phone', '#3b82f6', TRUE),
     (v_org_id, 'Email', 'mail', '#eab308', TRUE),
@@ -26,12 +32,12 @@ BEGIN
     (v_org_id, 'Task', 'check-square', '#22c55e', TRUE),
     (v_org_id, 'Lunch', 'coffee', '#f97316', TRUE);
 
-    -- 3. Create Default Sales Pipeline
+    -- 4. Create Default Sales Pipeline
     INSERT INTO public.crm_pipelines (org_id, name, is_default) 
     VALUES (v_org_id, 'Sales Pipeline', TRUE) 
     RETURNING id INTO v_pipeline_id;
 
-    -- 4. Create Default Stages
+    -- 5. Create Default Stages
     INSERT INTO public.crm_pipeline_stages (pipeline_id, name, display_order, win_probability, type) VALUES
     (v_pipeline_id, 'Lead', 1, 10, 'open'),
     (v_pipeline_id, 'Qualified', 2, 40, 'open'),
@@ -40,22 +46,22 @@ BEGIN
     (v_pipeline_id, 'Won', 5, 100, 'won'),
     (v_pipeline_id, 'Lost', 6, 0, 'lost');
 
-    -- 5. Create System Roles
+    -- 6. Create System Roles
     INSERT INTO public.roles (org_id, name, description, is_system) VALUES (v_org_id, 'Owner', 'Full access', TRUE) RETURNING id INTO v_role_owner_id;
     INSERT INTO public.roles (org_id, name, description, is_system) VALUES (v_org_id, 'Member', 'Standard access', TRUE) RETURNING id INTO v_role_member_id;
 
-    -- 6. Assign Permissions
+    -- 7. Assign Permissions
     INSERT INTO public.role_permissions (role_id, permission_id) SELECT v_role_owner_id, id FROM public.permissions;
     INSERT INTO public.role_permissions (role_id, permission_id) SELECT v_role_member_id, id FROM public.permissions WHERE code LIKE '%.read';
 
-    -- 7. Create Profile
+    -- 8. Create Profile
     INSERT INTO public.profiles (id, full_name, org_id, role_id)
     VALUES (new.id, new.raw_user_meta_data->>'full_name', v_org_id, v_role_owner_id);
 
-    -- 8. Update Org Owner
+    -- 9. Update Org Owner
     UPDATE public.organizations SET owner_profile_id = new.id WHERE id = v_org_id;
 
-    -- 9. Init Closure
+    -- 10. Init Closure
     INSERT INTO public.role_closure (org_id, parent_role_id, child_role_id, depth)
     VALUES (v_org_id, v_role_owner_id, v_role_owner_id, 0);
 

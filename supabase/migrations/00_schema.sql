@@ -249,3 +249,30 @@ CREATE INDEX idx_crm_contacts_rbac ON public.crm_contacts(owner_tenant_id, owner
 CREATE INDEX idx_crm_deals_rbac ON public.crm_deals(owner_tenant_id, owner_user_id, owner_role_id);
 CREATE INDEX idx_crm_activities_rbac ON public.crm_activities(owner_tenant_id, owner_user_id, owner_role_id);
 CREATE INDEX idx_crm_notes_rbac ON public.crm_notes(owner_tenant_id, owner_user_id, owner_role_id);
+
+-- =========================================================
+-- 10. MODULES & SUBSCRIPTIONS (NEW)
+-- =========================================================
+
+-- Defines what permissions exist in a module (e.g., 'crm' module includes 'crm_companies.read', etc.)
+CREATE TABLE public.app_modules (
+    code TEXT PRIMARY KEY, -- e.g. 'crm', 'hrm', 'billing'
+    name TEXT NOT NULL,
+    description TEXT,
+    included_permissions TEXT[] DEFAULT '{}' -- Array of permission codes
+);
+
+-- Links an Org to a Module
+CREATE TABLE public.org_subscriptions (
+    org_id UUID REFERENCES public.organizations(id) ON DELETE CASCADE,
+    module_code TEXT REFERENCES public.app_modules(code) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (org_id, module_code)
+);
+
+-- RLS for Modules (View only for authenticated, Manage for SuperAdmins/DBA only)
+ALTER TABLE public.app_modules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.org_subscriptions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Read Modules" ON public.app_modules FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Read Subs" ON public.org_subscriptions FOR SELECT TO authenticated USING (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid);

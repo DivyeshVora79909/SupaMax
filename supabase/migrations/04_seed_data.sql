@@ -39,5 +39,34 @@ INSERT INTO public.permissions (code, description) VALUES
 ('crm_notes.write', 'Create/Edit notes'),
 ('crm_notes.delete', 'Delete notes')
 
+ON CONFLICT (code) DO UPDATE SET description = EXCLUDED.description;
+
+-- 2. Insert App Modules (The Definitions)
+-- 'core': Permissions everyone needs to basically exist
+-- 'crm': Specific CRM permissions
+INSERT INTO public.app_modules (code, name, description, included_permissions) VALUES
+(
+    'core', 
+    'Core Platform', 
+    'Basic organization and user management', 
+    ARRAY[
+        'orgs.read', 'orgs.write', 
+        'roles.read', 'roles.write', 'roles.delete', 
+        'profiles.read', 'profiles.write', 'profiles.delete'
+    ]
+),
+(
+    'crm', 
+    'CRM Suite', 
+    'Customer Relationship Management', 
+    ARRAY[
+        'crm_companies.read', 'crm_companies.write', 'crm_companies.delete',
+        'crm_contacts.read', 'crm_contacts.write', 'crm_contacts.delete',
+        'crm_deals.read', 'crm_deals.write', 'crm_deals.delete',
+        'crm_products.read', 'crm_products.write', 'crm_products.delete',
+        'crm_activities.read', 'crm_activities.write', 'crm_activities.delete',
+        'crm_notes.read', 'crm_notes.write', 'crm_notes.delete'
+    ]
+)
 ON CONFLICT (code) DO UPDATE 
-SET description = EXCLUDED.description;
+SET included_permissions = EXCLUDED.included_permissions;
