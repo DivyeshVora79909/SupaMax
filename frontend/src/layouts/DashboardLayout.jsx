@@ -29,10 +29,7 @@ export default function DashboardLayout(props) {
     <A
       href={p.href}
       class={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-        location.pathname === p.href ||
-        (p.href !== "/" && location.pathname.includes(p.href))
-          ? activeClass
-          : inactiveClass
+        location.pathname === p.href ? activeClass : inactiveClass
       }`}
     >
       {p.icon}
@@ -42,7 +39,6 @@ export default function DashboardLayout(props) {
 
   return (
     <div class="flex h-screen w-full bg-slate-50 font-sans">
-      {/* Sidebar */}
       <aside class="w-64 flex-shrink-0 bg-slate-900 flex flex-col border-r border-slate-800">
         <div class="h-16 flex items-center px-6 border-b border-slate-800 bg-slate-900">
           <div class="flex items-center gap-2 text-indigo-500">
@@ -55,18 +51,14 @@ export default function DashboardLayout(props) {
 
         <nav class="flex-1 px-4 py-6 space-y-1">
           <div class="px-3 mb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            Menu
+            CRM Core
           </div>
           <NavItem
             href="/"
             icon={<LayoutDashboard size={18} />}
             label="Overview"
           />
-          <NavItem
-            href="/deals"
-            icon={<Banknote size={18} />}
-            label="Deals Pipeline"
-          />
+          <NavItem href="/deals" icon={<Banknote size={18} />} label="Deals" />
           <NavItem
             href="/contacts"
             icon={<Users size={18} />}
@@ -79,12 +71,12 @@ export default function DashboardLayout(props) {
           />
 
           <div class="px-3 mt-8 mb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            System
+            Admin
           </div>
           <NavItem
             href="/team"
             icon={<Briefcase size={18} />}
-            label="Organization"
+            label="Team & Roles"
           />
           <NavItem
             href="/settings"
@@ -96,20 +88,19 @@ export default function DashboardLayout(props) {
         <div class="p-4 border-t border-slate-800 bg-slate-950">
           <div class="flex items-center gap-3 px-3 py-3 rounded-lg bg-slate-800/50 border border-slate-800">
             <div class="w-9 h-9 rounded-full bg-indigo-500 flex items-center justify-center text-white text-sm font-bold shadow-md">
-              {user()?.email?.substring(0, 2).toUpperCase()}
+              {user()?.email?.substring(0, 2).toUpperCase() || "??"}
             </div>
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium text-white truncate">
                 {user()?.user_metadata?.full_name || "User"}
               </p>
               <p class="text-xs text-slate-400 truncate">
-                {user()?.app_metadata?.role_id?.split("-")[0] || "Member"}
+                {user()?.app_metadata?.role_id ? "Authenticated" : "Loading..."}
               </p>
             </div>
             <button
               onClick={handleLogout}
               class="text-slate-400 hover:text-red-400 transition-colors"
-              title="Logout"
             >
               <LogOut size={16} />
             </button>
@@ -117,27 +108,7 @@ export default function DashboardLayout(props) {
         </div>
       </aside>
 
-      {/* Main Content */}
       <main class="flex-1 overflow-hidden flex flex-col">
-        <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 flex-shrink-0">
-          <div class="flex items-center gap-4">
-            <h2 class="text-xl font-bold text-slate-800 capitalize">
-              {location.pathname === "/"
-                ? "Dashboard"
-                : location.pathname.split("/")[1]}
-            </h2>
-          </div>
-
-          <div class="flex items-center gap-4">
-            <Show when={user()?.app_metadata?.role_id}>
-              <span class="flex items-center gap-2 text-xs font-mono bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-full border border-indigo-100">
-                <span class="w-2 h-2 bg-indigo-500 rounded-full animate-pulse"></span>
-                Role: {user()?.app_metadata?.role_id}
-              </span>
-            </Show>
-          </div>
-        </header>
-
         <div class="flex-1 overflow-y-auto p-8">
           <div class="max-w-7xl mx-auto h-full">{props.children}</div>
         </div>

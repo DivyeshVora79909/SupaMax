@@ -1,142 +1,168 @@
-import { createResource, For } from "solid-js";
+import { createResource, For, createSignal, Show } from "solid-js";
 import { supabase } from "../lib/supabase";
+import { user } from "../lib/auth"; // Access current user for UI logic
 import { Card } from "../components/ui/Card";
 import { Badge } from "../components/ui/Badge";
-import { Users, GitCommit, Shield } from "lucide-solid";
+import { Users, Shield, AlertTriangle, Check } from "lucide-solid";
 
 export default function Team() {
-  const [data] = createResource(async () => {
-    // Parallel fetch of org structure
-    const [roles, profiles, permissions] = await Promise.all([
-      supabase.from("roles").select("*, role_permissions(permissions(code))"),
-      supabase.from("profiles").select("*"),
-      supabase.from("role_hierarchy").select("*"),
-    ]);
-    return {
-      roles: roles.data,
-      profiles: profiles.data,
-      hierarchy: permissions.data,
-    };
+  const [errorMsg, setErrorMsg] = createSignal("");
+  const [successMsg, setSuccessMsg] = createSignal("");
+
+  const [data, { refetch }] = createResource(async () => {
+    // 1. Fetch Profiles
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("*, roles(name)"); // Join roles to show names
+
+    // 2. Fetch Roles available in the Org
+    const { data: roles } = await supabase
+      .from("roles")
+      .select("*")
+      .eq("is_system", false); // Only custom roles usually, but fetch all if needed
+
+    // 3. Fetch Hierarchy
+    const { data: hierarchy } = await supabase
+      .from("role_hierarchy")
+      .select("*");
+
+    return { profiles, roles, hierarchy };
   });
+
+  // --- ACTION: Change Member Role ---
+  // This triggers the Backend Trigger: enforce_role_assignment_subset
+  const handleRoleChange = async (userId, newRoleId) => {
+    setErrorMsg("");
+    setSuccessMsg("");
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({ role_id: newRoleId })
+      .eq("id", userId);
+
+    if (error) {
+      // Backend Security Trigger Message will appear here
+      setErrorMsg(error.message);
+    } else {
+      setSuccessMsg("Role updated successfully.");
+      refetch();
+    }
+  };
 
   return (
     <div class="space-y-8">
       <div>
         <h1 class="text-2xl font-bold text-slate-900">
-          Organization Structure
+          Organization Management
         </h1>
-        <p class="text-slate-500">Visualize Roles, Hierarchy, and Members</p>
+        <p class="text-slate-500">Manage members and role hierarchy</p>
       </div>
 
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Roles List */}
-        <div class="space-y-4">
-          <h2 class="text-lg font-semibold flex items-center gap-2">
-            <Shield size={18} class="text-indigo-600" />
-            Roles & Permissions
-          </h2>
-          <For each={data()?.roles}>
-            {(role) => (
-              <Card class="p-4 border-l-4 border-l-indigo-500">
-                <div class="flex justify-between items-start">
-                  <div>
-                    <h3 class="font-bold text-slate-800">{role.name}</h3>
-                    <p class="text-xs text-slate-400 font-mono mb-2">
-                      {role.id}
-                    </p>
-                    <p class="text-sm text-slate-600 mb-3">
-                      {role.description}
-                    </p>
-                  </div>
-                  <Badge>
-                    {
-                      data()?.profiles?.filter((p) => p.role_id === role.id)
-                        .length
-                    }{" "}
-                    Members
-                  </Badge>
-                </div>
-
-                <div class="flex flex-wrap gap-1 mt-2">
-                  <For each={role.role_permissions}>
-                    {(rp) => (
-                      <span class="px-2 py-1 bg-indigo-50 text-indigo-700 text-[10px] font-mono rounded border border-indigo-100">
-                        {rp.permissions.code}
-                      </span>
-                    )}
-                  </For>
-                  {role.role_permissions.length === 0 && (
-                    <span class="text-xs text-slate-400 italic">
-                      No explicit permissions
-                    </span>
-                  )}
-                </div>
-              </Card>
-            )}
-          </For>
+      {/* Security Feedback Area */}
+      <Show when={errorMsg()}>
+        <div class="p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg flex items-center gap-2">
+          <AlertTriangle size={18} />
+          <span class="font-medium">Security Blocked:</span> {errorMsg()}
         </div>
+      </Show>
+      <Show when={successMsg()}>
+        <div class="p-4 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg flex items-center gap-2">
+          <Check size={18} />
+          {successMsg()}
+        </div>
+      </Show>
 
-        {/* Members List */}
-        <div class="space-y-4">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* MEMBER MANAGEMENT */}
+        <div class="lg:col-span-2 space-y-4">
           <h2 class="text-lg font-semibold flex items-center gap-2">
-            <Users size={18} class="text-emerald-600" />
-            Members
+            <Users size={18} class="text-indigo-600" />
+            Team Members
           </h2>
           <Card class="divide-y divide-slate-100">
             <For each={data()?.profiles}>
-              {(profile) => (
-                <div class="p-4 flex items-center gap-4">
-                  <div class="w-10 h-10 bg-slate-200 rounded-full flex items-center justify-center text-slate-500 font-bold">
-                    {profile.full_name ? profile.full_name[0] : "?"}
+              {(member) => (
+                <div class="p-4 flex items-center justify-between">
+                  <div class="flex items-center gap-4">
+                    <div class="w-10 h-10 bg-slate-200 rounded-full flex items-center justify-center font-bold text-slate-500">
+                      {member.full_name?.[0]}
+                    </div>
+                    <div>
+                      <p class="font-medium text-slate-900">
+                        {member.full_name}
+                        {member.id === user()?.id && (
+                          <span class="text-xs text-slate-400 ml-2">(You)</span>
+                        )}
+                      </p>
+                      <p class="text-xs text-slate-500">{member.roles?.name}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p class="font-medium text-slate-900">
-                      {profile.full_name || "Unnamed User"}
-                    </p>
-                    <p class="text-xs text-slate-500">
-                      Role:{" "}
-                      {data()?.roles?.find((r) => r.id === profile.role_id)
-                        ?.name || "Unknown"}
-                    </p>
+
+                  {/* Role Selector */}
+                  <div class="flex items-center gap-2">
+                    <select
+                      class="text-sm border border-slate-300 rounded px-2 py-1 bg-white"
+                      value={member.role_id}
+                      onChange={(e) =>
+                        handleRoleChange(member.id, e.target.value)
+                      }
+                      // Disable changing your own role to prevent locking yourself out (optional UI safety)
+                      disabled={member.id === user()?.id}
+                    >
+                      <For each={data()?.roles}>
+                        {(r) => <option value={r.id}>{r.name}</option>}
+                      </For>
+                    </select>
                   </div>
                 </div>
               )}
             </For>
           </Card>
+        </div>
 
-          {/* Hierarchy Visualization (Simple List) */}
-          <div class="mt-8">
-            <h2 class="text-lg font-semibold flex items-center gap-2 mb-4">
-              <GitCommit size={18} class="text-amber-600" />
-              Hierarchy Rules
-            </h2>
-            <Card class="p-4 bg-slate-50">
+        {/* ROLE HIERARCHY */}
+        <div class="space-y-4">
+          <h2 class="text-lg font-semibold flex items-center gap-2">
+            <Shield size={18} class="text-emerald-600" />
+            Role Hierarchy
+          </h2>
+          <Card class="p-4 bg-slate-50 border-dashed">
+            <p class="text-xs text-slate-500 mb-4">
+              Define who reports to whom. Changes here affect data visibility
+              immediately via Closure Tables.
+            </p>
+            <div class="space-y-2">
               <For
                 each={data()?.hierarchy}
                 fallback={
-                  <p class="text-sm text-slate-500">
-                    No hierarchy defined (Flat structure)
-                  </p>
+                  <div class="text-sm text-slate-400">Flat Organization</div>
                 }
               >
                 {(rule) => {
-                  const parent = data()?.roles?.find(
-                    (r) => r.id === rule.parent_role_id
-                  )?.name;
-                  const child = data()?.roles?.find(
-                    (r) => r.id === rule.child_role_id
-                  )?.name;
+                  const parentName =
+                    data()?.roles?.find((r) => r.id === rule.parent_role_id)
+                      ?.name || "Unknown";
+                  const childName =
+                    data()?.roles?.find((r) => r.id === rule.child_role_id)
+                      ?.name || "Unknown";
                   return (
-                    <div class="flex items-center gap-2 text-sm text-slate-700 py-1">
-                      <span class="font-bold">{parent}</span>
-                      <span class="text-slate-400">→ manages →</span>
-                      <span class="font-bold">{child}</span>
+                    <div class="flex items-center justify-between text-sm bg-white p-2 rounded border border-slate-200 shadow-sm">
+                      <span class="font-bold text-indigo-700">
+                        {parentName}
+                      </span>
+                      <span class="text-slate-400 text-xs">manages</span>
+                      <span class="font-medium text-slate-700">
+                        {childName}
+                      </span>
                     </div>
                   );
                 }}
               </For>
-            </Card>
-          </div>
+            </div>
+
+            {/* Note: Adding hierarchy editing requires another UI form, 
+                omitted here to keep it concise, but the structure is ready. */}
+          </Card>
         </div>
       </div>
     </div>
