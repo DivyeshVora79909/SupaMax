@@ -1,4 +1,4 @@
--- 1. HIERARCHY MAINTENANCE (UNCHANGED)
+-- 1. HIERARCHY MAINTENANCE
 CREATE OR REPLACE FUNCTION public.rebuild_role_closure() RETURNS TRIGGER AS $$
 DECLARE v_org uuid;
 BEGIN
@@ -35,15 +35,20 @@ CREATE TRIGGER enforce_acyclic_hierarchy BEFORE INSERT OR UPDATE ON public.role_
 FOR EACH ROW EXECUTE FUNCTION check_hierarchy_cycle();
 
 -- =========================================================
--- 2. AUTOMATIC METADATA (UPDATED FOR CRM)
+-- 2. AUTOMATIC METADATA (Ownership Assignment)
 -- =========================================================
 CREATE OR REPLACE FUNCTION set_rls_metadata() RETURNS TRIGGER AS $$
 DECLARE user_meta RECORD;
 BEGIN
     SELECT org_id, role_id INTO user_meta FROM public.profiles WHERE id = auth.uid();
-    NEW.owner_user_id := auth.uid();
-    NEW.owner_tenant_id := user_meta.org_id;
-    NEW.owner_role_id := user_meta.role_id;
+    
+    -- Safety check: if running via backend without session, this might be null
+    IF user_meta.org_id IS NOT NULL THEN
+        NEW.owner_user_id := auth.uid();
+        NEW.owner_tenant_id := user_meta.org_id;
+        NEW.owner_role_id := user_meta.role_id;
+    END IF;
+    
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -53,45 +58,6 @@ CREATE TRIGGER set_companies_meta BEFORE INSERT ON public.crm_companies FOR EACH
 CREATE TRIGGER set_contacts_meta BEFORE INSERT ON public.crm_contacts FOR EACH ROW EXECUTE FUNCTION set_rls_metadata();
 CREATE TRIGGER set_deals_meta BEFORE INSERT ON public.crm_deals FOR EACH ROW EXECUTE FUNCTION set_rls_metadata();
 CREATE TRIGGER set_activities_meta BEFORE INSERT ON public.crm_activities FOR EACH ROW EXECUTE FUNCTION set_rls_metadata();
+CREATE TRIGGER set_notes_meta BEFORE INSERT ON public.crm_notes FOR EACH ROW EXECUTE FUNCTION set_rls_metadata();
 
-
--- 3. AUTH SIGNUP HANDLER (UNCHANGED - BUT NOW GRANTS CRM PERMISSIONS)
-CREATE OR REPLACE FUNCTION handle_new_user_signup()
-RETURNS TRIGGER AS $$
-DECLARE
-    v_org_id UUID;
-    v_role_owner_id UUID;
-    v_role_member_id UUID;
-BEGIN
-    -- Create Organization
-    INSERT INTO public.organizations (name, plan)
-    VALUES (COALESCE(new.raw_user_meta_data->>'company_name', 'My Organization'), 'free')
-    RETURNING id INTO v_org_id;
-
-    -- Create System Roles
-    INSERT INTO public.roles (org_id, name, description, is_system) VALUES (v_org_id, 'Owner', 'Full access', TRUE) RETURNING id INTO v_role_owner_id;
-    INSERT INTO public.roles (org_id, name, description, is_system) VALUES (v_org_id, 'Member', 'Standard access', TRUE) RETURNING id INTO v_role_member_id;
-
-    -- Assign Permissions (Owner gets ALL, Member gets READ only)
-    INSERT INTO public.role_permissions (role_id, permission_id) SELECT v_role_owner_id, id FROM public.permissions;
-    INSERT INTO public.role_permissions (role_id, permission_id) SELECT v_role_member_id, id FROM public.permissions WHERE code LIKE '%.read';
-
-    -- Create Profile
-    INSERT INTO public.profiles (id, full_name, org_id, role_id)
-    VALUES (new.id, new.raw_user_meta_data->>'full_name', v_org_id, v_role_owner_id);
-
-    -- Update Org Owner
-    UPDATE public.organizations SET owner_profile_id = new.id WHERE id = v_org_id;
-
-    -- Init Closure
-    INSERT INTO public.role_closure (org_id, parent_role_id, child_role_id, depth)
-    VALUES (v_org_id, v_role_owner_id, v_role_owner_id, 0);
-
-    RETURN new;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION handle_new_user_signup();
+-- Trigger for Trigger 3 is handled in migration 06
