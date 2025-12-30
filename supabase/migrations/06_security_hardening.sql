@@ -2,24 +2,34 @@
 -- 1. SETUP BYPASS FOR SIGNUP & DEFAULT SEEDING
 -- =========================================================
 
-CREATE OR REPLACE FUNCTION handle_new_user_signup()
+CREATE OR REPLACE FUNCTION public.before_auth_user_created()
 RETURNS TRIGGER AS $$
 DECLARE
     v_org_id UUID;
     v_role_owner_id UUID;
     v_role_member_id UUID;
     v_pipeline_id UUID;
+    v_perms text[];
 BEGIN
-    -- [SECURITY] Set a session variable to bypass subset triggers during signup
-    PERFORM set_config('app.is_system_action', 'true', true);
+    -- If org_id is already set in app_metadata, this user is being invited/created in an existing org.
+    -- We don't want to create a new org for them.
+    IF (new.raw_app_meta_data->>'org_id') IS NOT NULL THEN
+        RAISE LOG 'User % already has org_id %, skipping org creation', new.id, new.raw_app_meta_data->>'org_id';
+        RETURN new;
+    END IF;
+
+    RAISE LOG 'BEFORE Signup trigger fired for user: %', new.id;
+    
+    v_org_id := gen_random_uuid();
+    v_role_owner_id := gen_random_uuid();
+    v_role_member_id := gen_random_uuid();
+    v_pipeline_id := gen_random_uuid();
 
     -- 1. Create Organization
-    INSERT INTO public.organizations (name, plan)
-    VALUES (COALESCE(new.raw_user_meta_data->>'company_name', 'My Organization'), 'free')
-    RETURNING id INTO v_org_id;
+    INSERT INTO public.organizations (id, name, plan)
+    VALUES (v_org_id, COALESCE(new.raw_user_meta_data->>'company_name', 'My Organization'), 'free');
     
-    -- 2. SUBSCRIBE TO MODULES (New Step)
-    -- By default, give them Core and CRM.
+    -- 2. SUBSCRIBE TO MODULES
     INSERT INTO public.org_subscriptions (org_id, module_code) VALUES 
     (v_org_id, 'core'),
     (v_org_id, 'crm');
@@ -33,9 +43,8 @@ BEGIN
     (v_org_id, 'Lunch', 'coffee', '#f97316', TRUE);
 
     -- 4. Create Default Sales Pipeline
-    INSERT INTO public.crm_pipelines (org_id, name, is_default) 
-    VALUES (v_org_id, 'Sales Pipeline', TRUE) 
-    RETURNING id INTO v_pipeline_id;
+    INSERT INTO public.crm_pipelines (id, org_id, name, is_default) 
+    VALUES (v_pipeline_id, v_org_id, 'Sales Pipeline', TRUE);
 
     -- 5. Create Default Stages
     INSERT INTO public.crm_pipeline_stages (pipeline_id, name, display_order, win_probability, type) VALUES
@@ -47,33 +56,93 @@ BEGIN
     (v_pipeline_id, 'Lost', 6, 0, 'lost');
 
     -- 6. Create System Roles
-    INSERT INTO public.roles (org_id, name, description, is_system) VALUES (v_org_id, 'Owner', 'Full access', TRUE) RETURNING id INTO v_role_owner_id;
-    INSERT INTO public.roles (org_id, name, description, is_system) VALUES (v_org_id, 'Member', 'Standard access', TRUE) RETURNING id INTO v_role_member_id;
+    INSERT INTO public.roles (id, org_id, name, description, is_system) VALUES (v_role_owner_id, v_org_id, 'Owner', 'Full access', TRUE);
+    INSERT INTO public.roles (id, org_id, name, description, is_system) VALUES (v_role_member_id, v_org_id, 'Member', 'Standard access', TRUE);
 
     -- 7. Assign Permissions
-    INSERT INTO public.role_permissions (role_id, permission_id) SELECT v_role_owner_id, id FROM public.permissions;
+    INSERT INTO public.role_permissions (role_id, permission_id) 
+    SELECT v_role_owner_id, id FROM public.permissions;
+    
+    SELECT array_agg(code) INTO v_perms FROM public.permissions;
+
     INSERT INTO public.role_permissions (role_id, permission_id) SELECT v_role_member_id, id FROM public.permissions WHERE code LIKE '%.read';
 
-    -- 8. Create Profile
+    -- 8. Set raw_app_meta_data
+    new.raw_app_meta_data := jsonb_set(
+        COALESCE(new.raw_app_meta_data, '{}'::jsonb),
+        '{org_id}',
+        to_jsonb(v_org_id)
+    );
+    new.raw_app_meta_data := jsonb_set(
+        new.raw_app_meta_data,
+        '{role_id}',
+        to_jsonb(v_role_owner_id)
+    );
+    new.raw_app_meta_data := jsonb_set(
+        new.raw_app_meta_data,
+        '{permissions}',
+        to_jsonb(v_perms)
+    );
+
+    RAISE LOG 'BEFORE Signup trigger completed for user: %', new.id;
+    RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.after_auth_user_created()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_role_name TEXT;
+    v_org_id UUID;
+    v_role_id UUID;
+BEGIN
+    v_org_id := (new.raw_app_meta_data->>'org_id')::uuid;
+    v_role_id := (new.raw_app_meta_data->>'role_id')::uuid;
+
+    IF v_org_id IS NULL OR v_role_id IS NULL THEN
+        RETURN new;
+    END IF;
+
+    RAISE LOG 'AFTER Signup trigger fired for user: %', new.id;
+
+    -- Create Profile
     INSERT INTO public.profiles (id, full_name, org_id, role_id)
-    VALUES (new.id, new.raw_user_meta_data->>'full_name', v_org_id, v_role_owner_id);
+    VALUES (
+        new.id, 
+        new.raw_user_meta_data->>'full_name', 
+        v_org_id, 
+        v_role_id
+    ) ON CONFLICT (id) DO NOTHING;
 
-    -- 9. Update Org Owner
-    UPDATE public.organizations SET owner_profile_id = new.id WHERE id = v_org_id;
+    -- Check if this is the Owner role
+    SELECT name INTO v_role_name FROM public.roles WHERE id = v_role_id;
 
-    -- 10. Init Closure
-    INSERT INTO public.role_closure (org_id, parent_role_id, child_role_id, depth)
-    VALUES (v_org_id, v_role_owner_id, v_role_owner_id, 0);
+    IF v_role_name = 'Owner' THEN
+        -- Update Org Owner
+        UPDATE public.organizations SET owner_profile_id = new.id WHERE id = v_org_id AND owner_profile_id IS NULL;
+
+        -- Init Closure
+        INSERT INTO public.role_closure (org_id, parent_role_id, child_role_id, depth)
+        VALUES (v_org_id, v_role_id, v_role_id, 0)
+        ON CONFLICT DO NOTHING;
+    END IF;
 
     RETURN new;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Re-attach the trigger (ensure it's clean)
+-- Re-attach the triggers
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
+DROP TRIGGER IF EXISTS before_auth_user_created_trigger ON auth.users;
+DROP TRIGGER IF EXISTS after_auth_user_created_trigger ON auth.users;
+
+CREATE TRIGGER before_auth_user_created_trigger
+  BEFORE INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.before_auth_user_created();
+
+CREATE TRIGGER after_auth_user_created_trigger
   AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION handle_new_user_signup();
+  FOR EACH ROW EXECUTE FUNCTION public.after_auth_user_created();
 
 
 -- =========================================================

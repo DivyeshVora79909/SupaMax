@@ -57,14 +57,14 @@ CREATE INDEX idx_role_closure_child ON public.role_closure(child_role_id);
 -- 7. Profiles
 CREATE TABLE public.profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-    org_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE RESTRICT,
-    role_id UUID NOT NULL REFERENCES public.roles(id) ON DELETE RESTRICT,
+    org_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+    role_id UUID NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
     full_name TEXT,
     avatar_url TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
-ALTER TABLE public.organizations ADD CONSTRAINT fk_org_owner FOREIGN KEY (owner_profile_id) REFERENCES public.profiles(id) ON DELETE RESTRICT; 
+ALTER TABLE public.organizations ADD CONSTRAINT fk_org_owner FOREIGN KEY (owner_profile_id) REFERENCES public.profiles(id) ON DELETE SET NULL; 
 
 -- =========================================================
 -- 8. CRM CONFIGURATION (Customizable)
@@ -129,9 +129,9 @@ CREATE TABLE public.crm_companies (
     state TEXT,
     
     -- AUTOMATION FIELDS
-    owner_tenant_id UUID NOT NULL REFERENCES public.organizations(id),
-    owner_user_id   UUID NOT NULL REFERENCES auth.users(id),
-    owner_role_id   UUID NOT NULL REFERENCES public.roles(id),
+    owner_tenant_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+    owner_user_id   UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    owner_role_id   UUID NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
     enforcement_mode public.enforcement_mode DEFAULT 'CONTROLLED',
     
     created_at TIMESTAMPTZ DEFAULT now(),
@@ -149,9 +149,9 @@ CREATE TABLE public.crm_contacts (
     job_title TEXT,
     
     -- AUTOMATION FIELDS
-    owner_tenant_id UUID NOT NULL REFERENCES public.organizations(id),
-    owner_user_id   UUID NOT NULL REFERENCES auth.users(id),
-    owner_role_id   UUID NOT NULL REFERENCES public.roles(id),
+    owner_tenant_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+    owner_user_id   UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    owner_role_id   UUID NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
     enforcement_mode public.enforcement_mode DEFAULT 'CONTROLLED',
     
     created_at TIMESTAMPTZ DEFAULT now(),
@@ -174,9 +174,9 @@ CREATE TABLE public.crm_deals (
     probability INT,
     
     -- AUTOMATION FIELDS
-    owner_tenant_id UUID NOT NULL REFERENCES public.organizations(id),
-    owner_user_id   UUID NOT NULL REFERENCES auth.users(id),
-    owner_role_id   UUID NOT NULL REFERENCES public.roles(id),
+    owner_tenant_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+    owner_user_id   UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    owner_role_id   UUID NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
     enforcement_mode public.enforcement_mode DEFAULT 'PRIVATE',
     
     created_at TIMESTAMPTZ DEFAULT now(),
@@ -217,9 +217,9 @@ CREATE TABLE public.crm_activities (
     completed_at TIMESTAMPTZ,
     
     -- AUTOMATION FIELDS
-    owner_tenant_id UUID NOT NULL REFERENCES public.organizations(id),
-    owner_user_id   UUID NOT NULL REFERENCES auth.users(id),
-    owner_role_id   UUID NOT NULL REFERENCES public.roles(id),
+    owner_tenant_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+    owner_user_id   UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    owner_role_id   UUID NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
     enforcement_mode public.enforcement_mode DEFAULT 'CONTROLLED',
     
     created_at TIMESTAMPTZ DEFAULT now()
@@ -235,9 +235,9 @@ CREATE TABLE public.crm_notes (
     content TEXT NOT NULL,
     
     -- AUTOMATION FIELDS
-    owner_tenant_id UUID NOT NULL REFERENCES public.organizations(id),
-    owner_user_id   UUID NOT NULL REFERENCES auth.users(id),
-    owner_role_id   UUID NOT NULL REFERENCES public.roles(id),
+    owner_tenant_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+    owner_user_id   UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    owner_role_id   UUID NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
     enforcement_mode public.enforcement_mode DEFAULT 'CONTROLLED',
     
     created_at TIMESTAMPTZ DEFAULT now()
