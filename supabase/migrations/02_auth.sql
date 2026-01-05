@@ -4,10 +4,11 @@ RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
     v_invitation public.invitations%ROWTYPE;
 BEGIN
+    RAISE NOTICE 'handle_new_user: Looking for invitation for email %', NEW.email;
     SELECT * INTO v_invitation FROM public.invitations WHERE email = NEW.email;
     
     IF NOT FOUND THEN
-        RAISE EXCEPTION 'Access Denied: No invitation found.';
+        RAISE EXCEPTION 'Access Denied: No invitation found for email %', NEW.email;
     END IF;
 
     INSERT INTO public.profiles (id, tenant_id, role_id, full_name, email)
@@ -47,9 +48,10 @@ BEGIN
 
     -- Fetch Permissions (Self + Subordinates)
     SELECT array_agg(DISTINCT permission_code) INTO v_permissions
-    FROM public.role_permissions WHERE role_id = ANY(v_subordinates);
+    FROM public.role_permissions WHERE role_id = ANY(COALESCE(v_subordinates, ARRAY[v_role_id]));
 
     -- Inject Claims
+    claims := jsonb_set(COALESCE(claims, '{}'::jsonb), '{app_metadata}', COALESCE(claims->'app_metadata', '{}'::jsonb));
     claims := jsonb_set(claims, '{app_metadata, tenant_id}', to_jsonb((SELECT tenant_id FROM public.profiles WHERE id = (event->>'user_id')::uuid)));
     claims := jsonb_set(claims, '{app_metadata, role_id}', to_jsonb(v_role_id));
     claims := jsonb_set(claims, '{app_metadata, subordinate_role_ids}', to_jsonb(COALESCE(v_subordinates, '{}'::uuid[])));

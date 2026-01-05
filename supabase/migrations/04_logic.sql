@@ -1,4 +1,3 @@
-
 -- ). PROVISION TENANT (Atomic Transaction)
 -- Usage: rpc('provision_tenant', { 
 --   p_name: 'Acme Corp', 
@@ -25,8 +24,8 @@ DECLARE
     v_invite_id UUID;
 BEGIN
     -- 1. Security Check
-    IF auth.role() != 'service_role' THEN
-        RAISE EXCEPTION 'Access Denied: Only Service Role can provision tenants.';
+    IF auth.role() != 'service_role' AND session_user != 'postgres' THEN
+        RAISE EXCEPTION 'Access Denied: Only Service Role or Superuser can provision tenants.';
     END IF;
 
     -- 2. Create Tenant
@@ -65,7 +64,9 @@ DECLARE
     v_tenant_id UUID;
     v_admin_role_id UUID;
 BEGIN
-    IF auth.role() != 'service_role' THEN RAISE EXCEPTION 'Access Denied: Service Role required.'; END IF;
+    IF auth.role() != 'service_role' AND current_user != 'postgres' THEN 
+        RAISE EXCEPTION 'Access Denied: Service Role required.'; 
+    END IF;
 
     INSERT INTO public.tenants (name, slug) VALUES (p_name, p_slug) RETURNING id INTO v_tenant_id;
     INSERT INTO public.roles (tenant_id, name, is_root) VALUES (v_tenant_id, 'Tenant Owner', TRUE) RETURNING id INTO v_admin_role_id;
@@ -104,6 +105,11 @@ CREATE OR REPLACE FUNCTION public.is_in_my_tenant(p_tenant_id uuid) RETURNS bool
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$   
 DECLARE v_tid uuid;
 BEGIN
+
+    IF auth.role() = 'service_role' THEN 
+        RETURN TRUE; 
+    END IF;
+
     v_tid := (auth.jwt() -> 'app_metadata' ->> 'tenant_id')::uuid;
     IF v_tid IS NULL THEN SELECT tenant_id INTO v_tid FROM public.profiles WHERE id = auth.uid(); END IF;
     RETURN p_tenant_id = v_tid;
@@ -131,7 +137,8 @@ BEGIN
     permissions := ARRAY(SELECT jsonb_array_elements_text(COALESCE(auth.jwt() -> 'app_metadata' -> 'permissions', '[]'::jsonb)))::text[];
     my_tid := (auth.jwt() -> 'app_metadata' ->> 'tenant_id')::uuid;
 
-    IF p_tenant_id IS DISTINCT FROM my_tid THEN RETURN FALSE; END IF;
+    -- 1. Tenant Isolation (Strict)
+    IF p_tenant_id IS NULL OR my_tid IS NULL OR p_tenant_id != my_tid THEN RETURN FALSE; END IF;
 
     IF p_op = 'insert' THEN 
         req_perm := p_resource_prefix || ':c';
@@ -165,65 +172,84 @@ $$;
 
 -- 5. TRIGGERS
 
--- A. Auto-Metadata
-CREATE OR REPLACE FUNCTION public.set_security_metadata() RETURNS TRIGGER AS $$ 
+-- A. Auto-Metadata (Consolidated)
+CREATE OR REPLACE FUNCTION public.populate_resource_fields() RETURNS TRIGGER AS $$
 BEGIN
     NEW.tenant_id := (auth.jwt() -> 'app_metadata' ->> 'tenant_id')::uuid;
     NEW.owner_id := auth.uid();
     NEW.owner_role_id := (auth.jwt() -> 'app_metadata' ->> 'role_id')::uuid;
+    RAISE NOTICE 'populate_resource_fields: tenant_id=%, owner_id=%, owner_role_id=%', NEW.tenant_id, NEW.owner_id, NEW.owner_role_id;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
-CREATE TRIGGER set_deals_metadata BEFORE INSERT ON public.deals FOR EACH ROW EXECUTE FUNCTION public.set_security_metadata();
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+DROP TRIGGER IF EXISTS set_deals_metadata ON public.deals;
+DROP TRIGGER IF EXISTS populate_deals_fields ON public.deals;
+CREATE TRIGGER populate_deals_fields BEFORE INSERT ON public.deals FOR EACH ROW EXECUTE FUNCTION public.populate_resource_fields();
 
 -- B. Prevent Permission Escalation
 CREATE OR REPLACE FUNCTION public.prevent_permission_escalation() RETURNS TRIGGER AS $$
 DECLARE my_perms text[];
 BEGIN
-    IF auth.role() = 'service_role' THEN RETURN NEW; END IF;
+    IF auth.role() = 'service_role' THEN 
+        RETURN NEW; 
+    END IF;
+
     my_perms := ARRAY(SELECT jsonb_array_elements_text(COALESCE(auth.jwt() -> 'app_metadata' -> 'permissions', '[]'::jsonb)));
     IF NOT (NEW.permission_code = ANY(my_perms)) THEN RAISE EXCEPTION 'Access Denied: You cannot grant a permission you do not possess.'; END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+DROP TRIGGER IF EXISTS check_permission_escalation ON public.role_permissions;
 CREATE TRIGGER check_permission_escalation BEFORE INSERT ON public.role_permissions FOR EACH ROW EXECUTE FUNCTION public.prevent_permission_escalation();
 
 -- C. Prevent Role Escalation (Invite)
 CREATE OR REPLACE FUNCTION public.prevent_role_escalation_invite() RETURNS TRIGGER AS $$
 DECLARE subordinates uuid[];
 BEGIN
-    IF auth.role() = 'service_role' THEN RETURN NEW; END IF;
+    IF auth.role() = 'service_role' THEN 
+        RETURN NEW; 
+    END IF;
+
     subordinates := ARRAY(SELECT jsonb_array_elements_text(COALESCE(auth.jwt() -> 'app_metadata' -> 'subordinate_role_ids', '[]'::jsonb)))::uuid[];
     IF NOT (NEW.role_id = ANY(subordinates)) THEN RAISE EXCEPTION 'Access Denied: You can only assign roles that are below you.'; END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+DROP TRIGGER IF EXISTS check_role_escalation_invite ON public.invitations;
 CREATE TRIGGER check_role_escalation_invite BEFORE INSERT ON public.invitations FOR EACH ROW EXECUTE FUNCTION public.prevent_role_escalation_invite();
 
--- D. STRICT ROOT IMMUTABILITY
+-- D. Protect Root Role
 CREATE OR REPLACE FUNCTION public.protect_root_role() RETURNS TRIGGER AS $$
 BEGIN
-    IF auth.role() = 'service_role' THEN RETURN OLD; END IF;
+    IF auth.role() = 'service_role' THEN 
+        RETURN OLD; 
+    END IF;
+
     IF OLD.is_root THEN RAISE EXCEPTION 'Constraint Violation: Root Role cannot be modified or deleted.'; END IF;
     RETURN OLD;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+DROP TRIGGER IF EXISTS protect_root_role_trigger ON public.roles;
 CREATE TRIGGER protect_root_role_trigger BEFORE DELETE OR UPDATE ON public.roles FOR EACH ROW EXECUTE FUNCTION public.protect_root_role();
 
--- E. SINGLE ROOT ASSIGNMENT
+-- E. Single Root User Enforcement
 CREATE OR REPLACE FUNCTION public.enforce_single_root_user() RETURNS TRIGGER AS $$
 DECLARE v_is_root BOOLEAN;
 BEGIN
-    -- Check if assigned role is Root
     SELECT is_root INTO v_is_root FROM public.roles WHERE id = NEW.role_id;
     
     IF v_is_root THEN
-        -- Check if another user already has it
         IF EXISTS (SELECT 1 FROM public.profiles WHERE role_id = NEW.role_id AND id != NEW.id) THEN
             RAISE EXCEPTION 'Constraint Violation: Root Role is already assigned to another user.';
         END IF;
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+DROP TRIGGER IF EXISTS enforce_single_root_user_trigger ON public.profiles;
 CREATE TRIGGER enforce_single_root_user_trigger BEFORE INSERT OR UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION public.enforce_single_root_user();

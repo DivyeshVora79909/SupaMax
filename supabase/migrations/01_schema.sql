@@ -73,6 +73,7 @@ CREATE TABLE public.deals (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title TEXT NOT NULL,
     file_path TEXT UNIQUE,
+    lead_owner_id UUID REFERENCES auth.users(id),
     
     -- Security Mixin
     tenant_id UUID REFERENCES public.tenants(id),

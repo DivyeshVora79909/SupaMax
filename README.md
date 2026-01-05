@@ -266,4 +266,71 @@ Ideal for:
 
 ---
 
-End.
+## 16. Example: End-to-End Tenant Bootstrap
+
+### Provision tenant
+
+```bash
+DO $$
+DECLARE
+    v_result json;
+    v_email TEXT := 'div@gmail.com';
+    v_password TEXT := 'password';
+BEGIN
+    -- A. Cleanup (Reset for fresh seed)
+    DELETE FROM auth.users WHERE email = v_email;
+    DELETE FROM public.tenants WHERE slug = 'acme';
+
+    -- B. Provision Tenant Structure (Tenant, Role, Permissions, Invite)
+    -- This uses the function defined in 04_logic.sql
+    SELECT public.provision_tenant(
+        'Acme Corp',
+        'acme',
+        v_email,
+        'Owner',
+        ARRAY(SELECT code FROM public.permissions) -- Grant ALL permissions
+    ) INTO v_result;
+
+    RAISE NOTICE 'Tenant Provisioned: %', v_result;
+
+    -- C. Create Auth User (Simulate Invite Acceptance)
+    INSERT INTO auth.users (
+        instance_id,
+        id,
+        aud,
+        role,
+        email,
+        encrypted_password,
+        email_confirmed_at,
+        raw_app_meta_data,
+        raw_user_meta_data,
+        created_at,
+        updated_at,
+
+        -- CRITICAL FIX: Explicitly set tokens to empty strings instead of NULL.
+        -- Supabase GoTrue crashes if these are NULL during manual insert.
+        confirmation_token,
+        recovery_token,
+        email_change_token_new,
+        email_change
+    ) VALUES (
+        '00000000-0000-0000-0000-000000000000',
+        gen_random_uuid(),
+        'authenticated',
+        'authenticated',
+        v_email,
+        crypt(v_password, gen_salt('bf')),
+        now(),
+        '{"provider": "email", "providers": ["email"]}',
+        jsonb_build_object('full_name', 'Acme Admin'),
+        now(),
+        now(),
+
+        -- FIX: Empty Strings
+        '', '', '', ''
+    );
+
+    RAISE NOTICE 'User Created Successfully. Login with % / %', v_email, v_password;
+END $$;
+
+```

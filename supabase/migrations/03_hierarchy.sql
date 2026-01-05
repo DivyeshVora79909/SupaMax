@@ -34,7 +34,7 @@ BEGIN
 
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE TRIGGER on_hierarchy_change AFTER INSERT OR UPDATE OR DELETE ON public.role_hierarchy
 FOR EACH ROW EXECUTE FUNCTION public.rebuild_tenant_closure();
@@ -48,7 +48,7 @@ CREATE OR REPLACE FUNCTION public.maintain_role_self_closure() RETURNS TRIGGER A
     END IF;
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE TRIGGER on_role_change AFTER INSERT OR DELETE ON public.roles
 FOR EACH ROW EXECUTE FUNCTION public.maintain_role_self_closure();
@@ -77,7 +77,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE TRIGGER check_tree_rules BEFORE INSERT OR UPDATE ON public.role_hierarchy
 FOR EACH ROW EXECUTE FUNCTION public.enforce_tree_rules();
