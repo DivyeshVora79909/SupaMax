@@ -271,31 +271,42 @@ Ideal for:
 ### Provision tenant
 
 ```bash
+-- 1. ELEVATE PRIVILEGES
 SET LOCAL request.jwt.claim.role = 'service_role';
 
-DO $$
-DECLARE
-    v_result json;
+DO $$ DECLARE
+    v_tenant_name TEXT := 'Acme Corp';
+    v_tenant_slug TEXT := 'acme';
     v_email TEXT := 'div@gmail.com';
     v_password TEXT := 'password';
+    v_provision_result JSON;
+    v_user_id UUID;
 BEGIN
-    -- A. Cleanup (Reset for fresh seed)
+    -- A. CLEANUP (Reset for fresh seed)
+    -- 1. Delete Auth User
     DELETE FROM auth.users WHERE email = v_email;
-    DELETE FROM public.tenants WHERE slug = 'acme';
 
-    -- B. Provision Tenant Structure (Tenant, Role, Permissions, Invite)
-    -- This uses the function defined in 04_logic.sql
+    -- 2. Delete Tenant (Cascades to Roles, Invitations, Profiles, Deals)
+    DELETE FROM public.tenants WHERE slug = v_tenant_slug;
+
+    -- B. PROVISION TENANT STRUCTURE
+    -- This call assumes you applied the fix to 'provision_tenant' (Explicit UUIDs)
+    -- It creates: Tenant, Root Role, Permissions, Invitation
     SELECT public.provision_tenant(
-        'Acme Corp',
-        'acme',
-        v_email,
-        'Owner',
-        ARRAY(SELECT code FROM public.permissions) -- Grant ALL permissions
-    ) INTO v_result;
+        p_name := v_tenant_name,
+        p_slug := v_tenant_slug,
+        p_admin_email := v_email,
+        p_role_name := 'Owner'
+    ) INTO v_provision_result;
 
-    RAISE NOTICE 'Tenant Provisioned: %', v_result;
+    RAISE NOTICE 'Tenant Structure Provisioned: %', v_provision_result;
 
-    -- C. Create Auth User (Simulate Invite Acceptance)
+    -- C. CREATE AUTH USER
+    -- Inserting into auth.users fires the 'handle_new_user' trigger.
+    -- That trigger finds the invitation created in Step B and creates the profile.
+
+    v_user_id := gen_random_uuid();
+
     INSERT INTO auth.users (
         instance_id,
         id,
@@ -309,30 +320,29 @@ BEGIN
         created_at,
         updated_at,
 
-        -- CRITICAL FIX: Explicitly set tokens to empty strings instead of NULL.
-        -- Supabase GoTrue crashes if these are NULL during manual insert.
+        -- Supabase requires these to be strings, not NULL
         confirmation_token,
         recovery_token,
         email_change_token_new,
         email_change
     ) VALUES (
-        '00000000-0000-0000-0000-000000000000',
-        gen_random_uuid(),
+        '00000000-0000-0000-0000-000000000000', -- Standard Supabase Instance ID
+        v_user_id,
         'authenticated',
         'authenticated',
         v_email,
         crypt(v_password, gen_salt('bf')),
-        now(),
+        now(), -- Auto-confirm email
         '{"provider": "email", "providers": ["email"]}',
-        jsonb_build_object('full_name', 'Acme Admin'),
+        '{"full_name": "Super Admin"}',
         now(),
         now(),
 
-        -- FIX: Empty Strings
+        -- Empty Strings (Supabase crashes on NULL here)
         '', '', '', ''
     );
 
-    RAISE NOTICE 'User Created Successfully. Login with % / %', v_email, v_password;
+    RAISE NOTICE 'SUCCESS: User created. Login with % / %', v_email, v_password;
 END $$;
 
 ```

@@ -1,0 +1,109 @@
+[dotenv@17.2.3] injecting env (1) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+TAP version 14
+# Subtest: Multi-Tenant RBAC System Tests
+    # Subtest: Scenario 1: Tenant Provisioning
+        ok 1 - Should provision tenant
+        ok 2 - Should create owner user
+        ok 3 - Owner should login
+        1..3
+    ok 1 - Scenario 1: Tenant Provisioning # time=268.787ms
+    
+    # Subtest: Scenario 2: Role Hierarchy Setup
+        ok 1 - Owner should create Manager role
+        ok 2 - Owner should create Employee role
+        ok 3 - Owner should set Manager as child
+        ok 4 - Owner should set Employee as child of Manager
+        ok 5 - Owner should grant permissions to subordinate roles
+        1..5
+    ok 2 - Scenario 2: Role Hierarchy Setup # time=176.999ms
+    
+    # Subtest: Scenario 3: Onboarding & Invitations
+        ok 1 - Employee should login
+        1..1
+    ok 3 - Scenario 3: Onboarding & Invitations # time=474.521ms
+    
+    # Subtest: Scenario 4: RBAC Enforcement (Deals)
+        ok 1 - Employee should create deal
+        ok 2 - Manager should see subordinate deal
+        ok 3 - User from other tenant should not see deals
+        1..3
+    ok 4 - Scenario 4: RBAC Enforcement (Deals) # time=322.047ms
+    
+    # Subtest: Scenario 5: Security Constraints
+        ok 1 - Employee should NOT be able to grant permissions they dont have
+        1..1
+    ok 5 - Scenario 5: Security Constraints # time=45.739ms
+    
+    # Subtest: Scenario 6: Authentication & Onboarding Edge Cases
+        ok 1 - Signup without invitation should fail
+        ok 2 - Error message should indicate failure
+        1..2
+    ok 6 - Scenario 6: Authentication & Onboarding Edge Cases # time=80.96ms
+    
+    # Subtest: Scenario 7: Role Hierarchy Constraints
+        ok 1 - Circular hierarchy should fail
+        ok 2 - Error message should mention cycle
+        ok 3 - Renaming root role should fail
+        ok 4 - Deleting root role should fail
+        ok 5 - Creating second root role should fail
+        1..5
+    ok 7 - Scenario 7: Role Hierarchy Constraints # time=57.545ms
+    
+    # Subtest: Scenario 8: Resource Access Control (Deals) - Visibility Transitions
+        ok 1 - Employee should update visibility to PUBLIC
+        ok 2 - Manager should see PUBLIC deal
+        ok 3 - Manager should be able to update PUBLIC deal if they have dl:u
+        ok 4 - Manager should delete Employee deal
+        1..4
+    ok 8 - Scenario 8: Resource Access Control (Deals) - Visibility Transitions # time=116.466ms
+    
+    # Subtest: Scenario 9: Storage Integration
+        ok 1 - Employee should upload file
+        ok 2 - Manager should download subordinate deal file
+        ok 3 - Download data should exist
+        ok 4 - Other tenant should NOT download file
+        1..4
+    ok 9 - Scenario 9: Storage Integration # time=351.713ms
+    
+    # Subtest: Scenario 10: Permission & Escalation (Advanced)
+        ok 1 - Employee should NOT create deal after permission removal
+        1..1
+    ok 10 - Scenario 10: Permission & Escalation (Advanced) # time=228.855ms
+    
+    # Subtest: Scenario 12: Advanced Invitation Security
+        ok 1 - Manager should invite Employee
+        ok 2 - Invite should be successful
+        ok 3 - Manager should NOT invite Owner (Escalation)
+        ok 4 - Employee should NOT invite Manager (Escalation)
+        ok 5 - Other tenant should NOT invite to my tenant
+        ok 6 - Owner should invite to newly created role
+        ok 7 - Invite to new role should be successful
+        1..7
+    ok 11 - Scenario 12: Advanced Invitation Security # time=280.119ms
+    
+    # Subtest: Scenario 13: Advanced Resource Access
+        ok 1 - Deal should be created in MY tenant even if I tried to spoof tenant_id
+        ok 2 - Tenant ID should be forced to MINE
+        ok 3 - Employee should NOT be able to update Manager deal
+        1..3
+    ok 12 - Scenario 13: Advanced Resource Access # time=192.208ms
+    
+    # Subtest: Scenario 14: Role Creation Trigger
+        ok 1 - Owner should create role without explicit tenant_id
+        ok 2 - Tenant ID should be auto-populated by trigger
+        1..2
+    ok 13 - Scenario 14: Role Creation Trigger # time=46.045ms
+    
+    # Subtest: Scenario 11: Database Integrity Triggers
+        ok 1 - Owner should be ancestor of Employee
+        ok 2 - Owner should delete Manager role
+        ok 3 - Owner should NO LONGER be ancestor of Employee after Manager deletion
+        1..3
+    ok 14 - Scenario 11: Database Integrity Triggers # time=54.043ms
+    
+    1..14
+ok 1 - Multi-Tenant RBAC System Tests # time=2912.588ms
+
+1..1
+# { total: 44, pass: 44 }
+# time=2979.801ms

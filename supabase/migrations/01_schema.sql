@@ -15,7 +15,7 @@ CREATE TABLE public.tenants (
 
 CREATE TABLE public.roles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID REFERENCES public.tenants(id) ON DELETE CASCADE,
+    tenant_id UUID NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     is_root BOOLEAN DEFAULT FALSE,
     UNIQUE(tenant_id, name)
@@ -24,7 +24,7 @@ CREATE TABLE public.roles (
 CREATE UNIQUE INDEX idx_single_root_per_tenant ON public.roles (tenant_id) WHERE is_root = TRUE;
 
 CREATE TABLE public.permissions (
-    code TEXT PRIMARY KEY,
+    code TEXT NOT NULL PRIMARY KEY,
     description TEXT
 );
 
@@ -52,8 +52,8 @@ CREATE TABLE public.role_closure (
 -- 5. USER TABLES
 CREATE TABLE public.profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-    tenant_id UUID REFERENCES public.tenants(id) ON DELETE CASCADE,
-    role_id UUID NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
+    tenant_id UUID NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
+    role_id UUID NOT NULL REFERENCES public.roles(id) ON DELETE RESTRICT,
     full_name TEXT,
     email TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
@@ -63,7 +63,7 @@ CREATE TABLE public.invitations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT NOT NULL UNIQUE,
     role_id UUID NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
-    tenant_id UUID REFERENCES public.tenants(id) ON DELETE CASCADE,
+    tenant_id UUID NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
     invited_by UUID REFERENCES auth.users(id),
     created_at TIMESTAMPTZ DEFAULT now()
 );
@@ -76,10 +76,10 @@ CREATE TABLE public.deals (
     lead_owner_id UUID REFERENCES public.profiles(id),
     
     -- Security Mixin
-    tenant_id UUID REFERENCES public.tenants(id),
-    owner_id UUID NOT NULL REFERENCES public.profiles(id),
+    tenant_id UUID NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
+    owner_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
     visibility visibility_mode NOT NULL DEFAULT 'PRIVATE',
-    owner_role_id UUID NOT NULL REFERENCES public.roles(id),
+    owner_role_id UUID REFERENCES public.roles(id) ON DELETE SET NULL,
     
     created_at TIMESTAMPTZ DEFAULT now()
 );

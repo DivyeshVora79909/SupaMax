@@ -55,8 +55,7 @@ t.test('Multi-Tenant RBAC System Tests', async (t) => {
             p_name: 'Test Corp',
             p_slug: TENANT_SLUG,
             p_admin_email: TEST_EMAIL_OWNER,
-            p_role_name: 'Owner',
-            p_permissions: permCodes
+            p_role_name: 'Owner'
         });
 
         t.error(error, 'Should provision tenant');
@@ -159,7 +158,7 @@ t.test('Multi-Tenant RBAC System Tests', async (t) => {
 
         // Create another tenant to test isolation
         await supabaseAdmin.rpc('provision_tenant', {
-            p_name: 'Other Corp', p_slug: 'other', p_admin_email: 'other@test.com', p_role_name: 'Owner', p_permissions: ['dl:r']
+            p_name: 'Other Corp', p_slug: 'other', p_admin_email: 'other@test.com', p_role_name: 'Owner'
         });
         await supabaseAdmin.auth.admin.createUser({ email: 'other@test.com', password: TEST_PASSWORD, email_confirm: true });
         const otherToken = await login('other@test.com');
@@ -292,7 +291,7 @@ t.test('Multi-Tenant RBAC System Tests', async (t) => {
 
         // 4. Other Tenant fails download
         await supabaseAdmin.rpc('provision_tenant', {
-            p_name: 'Other Corp 2', p_slug: 'other2', p_admin_email: 'other2@test.com', p_role_name: 'Owner', p_permissions: ['dl:r']
+            p_name: 'Other Corp 2', p_slug: 'other2', p_admin_email: 'other2@test.com', p_role_name: 'Owner'
         });
         await supabaseAdmin.auth.admin.createUser({ email: 'other2@test.com', password: TEST_PASSWORD, email_confirm: true });
         const otherToken = await login('other2@test.com');
@@ -324,6 +323,100 @@ t.test('Multi-Tenant RBAC System Tests', async (t) => {
             .from('deals')
             .insert({ title: 'Forbidden Deal' });
         t.ok(createError, 'Employee should NOT create deal after permission removal');
+    });
+
+    t.test('Scenario 12: Advanced Invitation Security', async (t) => {
+        const ownerClient = await createAuthenticatedClient(ownerToken);
+        const managerClient = await createAuthenticatedClient(managerToken);
+        const employeeClient = await createAuthenticatedClient(employeeToken);
+
+        // 1. Manager invites Employee (Success)
+        // We need a new employee email
+        const NEW_EMPLOYEE_EMAIL = 'new-employee@test.com';
+        const { data: inv1, error: inv1Error } = await managerClient.rpc('invite_user_secure', {
+            p_email: NEW_EMPLOYEE_EMAIL,
+            p_role_id: employeeRoleId
+        });
+        t.error(inv1Error, 'Manager should invite Employee');
+        t.ok(inv1?.success, 'Invite should be successful');
+
+        // 2. Manager invites Owner (Must fail: Escalation)
+        const { error: inv2Error } = await managerClient.rpc('invite_user_secure', {
+            p_email: 'hacker-owner@test.com',
+            p_role_id: ownerRoleId
+        });
+        t.ok(inv2Error, 'Manager should NOT invite Owner (Escalation)');
+
+        // 3. Employee invites Manager (Must fail: Escalation)
+        const { error: inv3Error } = await employeeClient.rpc('invite_user_secure', {
+            p_email: 'hacker-manager@test.com',
+            p_role_id: managerRoleId
+        });
+        t.ok(inv3Error, 'Employee should NOT invite Manager (Escalation)');
+
+        // 4. User from "Other Tenant" cannot invite to "My Tenant"
+        const otherToken = await login('other@test.com');
+        const otherClient = await createAuthenticatedClient(otherToken);
+        const { error: inv4Error } = await otherClient.rpc('invite_user_secure', {
+            p_email: 'cross-tenant@test.com',
+            p_role_id: employeeRoleId
+        });
+        t.ok(inv4Error, 'Other tenant should NOT invite to my tenant');
+
+        // 5. Root User Edge Case: Owner creates "New Manager", then immediately invites
+        const { data: newManagerRole } = await ownerClient.from('roles').insert({ name: 'New Manager' }).select().single();
+        const { data: inv5, error: inv5Error } = await ownerClient.rpc('invite_user_secure', {
+            p_email: 'new-manager@test.com',
+            p_role_id: newManagerRole.id
+        });
+        t.error(inv5Error, 'Owner should invite to newly created role');
+        t.ok(inv5?.success, 'Invite to new role should be successful');
+    });
+
+    t.test('Scenario 13: Advanced Resource Access', async (t) => {
+        const employeeClient = await createAuthenticatedClient(employeeToken);
+        const otherToken = await login('other@test.com');
+        const otherClient = await createAuthenticatedClient(otherToken);
+
+        // 1. User cannot create a Deal with a different tenant_id
+        const { data: otherTenant } = await supabaseAdmin.from('tenants').select('id').eq('slug', 'other').single();
+        const { error: crossTenantError } = await employeeClient.from('deals').insert({
+            title: 'Cross Tenant Deal',
+            tenant_id: otherTenant.id
+        });
+        // Note: The trigger populate_resource_fields overwrites tenant_id, so it might not "fail" but it won't be created in the other tenant.
+        // However, RLS might block it if we try to insert a specific tenant_id that isn't ours.
+        // Let's check if it was created in OUR tenant instead.
+        const { data: myDeals } = await employeeClient.from('deals').select().eq('title', 'Cross Tenant Deal');
+        t.ok(myDeals.length > 0, 'Deal should be created in MY tenant even if I tried to spoof tenant_id');
+        t.equal(myDeals[0].tenant_id, tenantId, 'Tenant ID should be forced to MINE');
+
+        // 2. User cannot update a deal they don't own (unless PUBLIC + permission)
+        const { data: managerProfile } = await supabaseAdmin.from('profiles').select('id').eq('email', TEST_EMAIL_MANAGER).single();
+        const { data: managerDeal } = await supabaseAdmin.from('deals').insert({
+            title: 'Manager Private Deal',
+            visibility: 'PRIVATE',
+            owner_id: managerProfile.id,
+            tenant_id: tenantId,
+            owner_role_id: managerRoleId
+        }).select().single();
+
+        const { error: unauthUpdateError } = await employeeClient.from('deals').update({ title: 'Hacked' }).eq('id', managerDeal.id);
+        // This should fail RLS or simply not update any rows.
+        const { data: checkDeal } = await supabaseAdmin.from('deals').select('title').eq('id', managerDeal.id).single();
+        t.equal(checkDeal.title, 'Manager Private Deal', 'Employee should NOT be able to update Manager deal');
+    });
+
+    t.test('Scenario 14: Role Creation Trigger', async (t) => {
+        const ownerClient = await createAuthenticatedClient(ownerToken);
+
+        // 1. Verify set_role_tenant trigger populates tenant_id automatically
+        const { data: newRole, error: roleError } = await ownerClient.from('roles').insert({
+            name: 'Auto Tenant Role'
+        }).select().single();
+
+        t.error(roleError, 'Owner should create role without explicit tenant_id');
+        t.equal(newRole.tenant_id, tenantId, 'Tenant ID should be auto-populated by trigger');
     });
 
     t.test('Scenario 11: Database Integrity Triggers', async (t) => {
@@ -370,6 +463,8 @@ t.test('Multi-Tenant RBAC System Tests', async (t) => {
         await cleanupUser('other2@test.com');
         await cleanupUser('hacker@test.com');
         await cleanupUser('no-invite@test.com');
+        await cleanupUser('new-employee@test.com');
+        await cleanupUser('new-manager@test.com');
         await supabaseAdmin.from('tenants').delete().eq('slug', TENANT_SLUG);
         await supabaseAdmin.from('tenants').delete().eq('slug', 'other');
         await supabaseAdmin.from('tenants').delete().eq('slug', 'other2');
