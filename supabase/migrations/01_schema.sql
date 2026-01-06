@@ -73,11 +73,11 @@ CREATE TABLE public.deals (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title TEXT NOT NULL,
     file_path TEXT UNIQUE,
-    lead_owner_id UUID REFERENCES auth.users(id),
+    lead_owner_id UUID REFERENCES public.profiles(id),
     
     -- Security Mixin
     tenant_id UUID REFERENCES public.tenants(id),
-    owner_id UUID NOT NULL REFERENCES auth.users(id),
+    owner_id UUID NOT NULL REFERENCES public.profiles(id),
     visibility visibility_mode NOT NULL DEFAULT 'PRIVATE',
     owner_role_id UUID NOT NULL REFERENCES public.roles(id),
     
@@ -91,3 +91,6 @@ CREATE INDEX idx_closure_anc ON public.role_closure(ancestor_id);
 CREATE INDEX idx_closure_desc ON public.role_closure(descendant_id);
 CREATE INDEX idx_deals_lookup ON public.deals(tenant_id, owner_id);
 CREATE INDEX idx_deals_files ON public.deals(file_path);
+
+-- 8. STORAGE BUCKETS
+INSERT INTO storage.buckets (id, name, public) VALUES ('deals', 'deals', false) ON CONFLICT (id) DO NOTHING;

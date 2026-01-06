@@ -271,6 +271,8 @@ Ideal for:
 ### Provision tenant
 
 ```bash
+SET LOCAL request.jwt.claim.role = 'service_role';
+
 DO $$
 DECLARE
     v_result json;
