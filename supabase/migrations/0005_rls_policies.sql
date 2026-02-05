@@ -1,9 +1,11 @@
 -- 1. Closure Table: Structural Access (Public Read)
+-- Required for Graph UI traversal
 CREATE POLICY "rls_closure_read" ON closure_dominance
     FOR SELECT
         USING (TRUE);
 
--- 2. Nodes: Line of Sight
+-- 2. Nodes: Granular Visibility
+-- Logic: Has Permission AND (Dominates Node OR Node is Sibling)
 CREATE POLICY "rls_node_read" ON dag_node
     FOR SELECT
         USING ((WITH ctx AS (
@@ -12,26 +14,20 @@ CREATE POLICY "rls_node_read" ON dag_node
             FROM
                 get_graph_context())
                     SELECT
-                        -- Case A: Looking Up (I can see my ancestors)
-(id = ANY (
+                        predicate_has_perm(ctx, 'GRAPH_READ') AND (
+                        -- Dominance (I own it)
+                        predicate_dominates(ctx.node_id, id) OR
+                        -- Membership (It is my sibling: Child of my parent Groups/Roles)
+                        EXISTS (
                             SELECT
-                                ancestor_ids
+                                1
                             FROM
-                                ctx)) OR
-                                -- Case B: Looking Down (I can see my descendants)
-                                EXISTS (
-                                    SELECT
-                                        1
-                                    FROM
-                                        closure_dominance
-                                    WHERE
-                                        ancestor_id =(
-                                            SELECT
-                                                node_id
-                                            FROM
-                                                ctx) AND descendant_id = id)));
+                                dag_edge e
+                            WHERE
+                                e.child_id = id AND e.parent_id = ANY (ctx.membership_ids)))));
 
 -- 3. Edges: Structural Consistency
+-- Logic: Can see edge if can see Parent AND Child
 CREATE POLICY "rls_edge_read" ON dag_edge
     FOR SELECT
         USING ((WITH ctx AS (
@@ -40,22 +36,9 @@ CREATE POLICY "rls_edge_read" ON dag_edge
             FROM
                 get_graph_context())
                     SELECT
-                        -- Case A: Looking Sideways (Edges of my direct parents/siblings)
-(parent_id = ANY (
-                            SELECT
-                                parent_ids
-                            FROM
-                                ctx)) OR
-                                -- Case B: Looking Down (Edges within my subtree)
-                                EXISTS (
-                                    SELECT
-                                        1
-                                    FROM
-                                        closure_dominance
-                                    WHERE
-                                        ancestor_id =(
-                                            SELECT
-                                                node_id
-                                            FROM
-                                                ctx) AND descendant_id = parent_id)));
+                        predicate_has_perm(ctx, 'GRAPH_READ') AND (
+                        -- Dominance (I own the relationship)
+                        predicate_dominates(ctx.node_id, parent_id) OR
+                        -- Membership (Edge belongs to my parent Group/Role)
+                        parent_id = ANY (ctx.membership_ids))));
 

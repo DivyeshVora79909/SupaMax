@@ -1,3 +1,12 @@
+-- Helper: Advisory Lock to serialize writes per node
+CREATE OR REPLACE FUNCTION _lock_node(p_node uuid)
+    RETURNS void
+    LANGUAGE sql
+    AS $$
+    SELECT
+        pg_advisory_xact_lock(hashtext(p_node::text));
+$$;
+
 -- 1. Create Group
 CREATE OR REPLACE FUNCTION rpc_create_group(p_parent_id uuid, p_label text)
     RETURNS uuid
@@ -10,9 +19,12 @@ DECLARE
 BEGIN
     ctx := assert_authenticated();
     PERFORM
+        _lock_node(p_parent_id);
+    -- Lock Parent
+    PERFORM
         assert_dominance(ctx, p_parent_id);
     PERFORM
-        assert_permission(ctx, 'GRAPH_EDIT');
+        assert_permission(ctx, 'NODE_CREATE');
     INSERT INTO dag_node(type, label)
         VALUES ('group', p_label)
     RETURNING
@@ -39,12 +51,17 @@ DECLARE
 BEGIN
     ctx := assert_authenticated();
     PERFORM
+        _lock_node(p_parent_id);
+    -- Lock Parent
+    PERFORM
         assert_dominance(ctx, p_parent_id);
     PERFORM
-        assert_permission(ctx, 'GRAPH_EDIT');
+        assert_permission(ctx, 'NODE_CREATE');
+    PERFORM
+        assert_permission(ctx, 'ROLE_MANAGE');
+    -- Extra check for creating permissions
     PERFORM
         assert_no_escalation(ctx, p_bits);
-    -- Specific assertion reuse
     INSERT INTO dag_node(type, label, permission_bits)
         VALUES ('role', p_label, p_bits)
     RETURNING
@@ -69,10 +86,15 @@ DECLARE
     ctx graph_context;
 BEGIN
     ctx := assert_authenticated();
+    -- Lock both to prevent cycle race conditions
+    PERFORM
+        _lock_node(p_parent);
+    PERFORM
+        _lock_node(p_child);
     PERFORM
         assert_dominance(ctx, p_parent);
     PERFORM
-        assert_permission(ctx, 'GRAPH_EDIT');
+        assert_permission(ctx, 'EDGE_LINK');
     IF _algo_detect_cycle(p_parent, p_child) THEN
         RAISE EXCEPTION 'ERR_CYCLE_DETECTED';
     END IF;
@@ -83,7 +105,7 @@ BEGIN
 END;
 $$;
 
--- 4. Unlink Nodes
+-- 4. Unlink Nodes (Prevent Orphans)
 CREATE OR REPLACE FUNCTION rpc_unlink_node(p_parent uuid, p_child uuid)
     RETURNS void
     LANGUAGE plpgsql
@@ -94,10 +116,14 @@ DECLARE
 BEGIN
     ctx := assert_authenticated();
     PERFORM
+        _lock_node(p_parent);
+    PERFORM
+        _lock_node(p_child);
+    PERFORM
         assert_dominance(ctx, p_parent);
     PERFORM
-        assert_permission(ctx, 'GRAPH_EDIT');
-    -- Orphan Check (Inline logic is fine for small checks)
+        assert_permission(ctx, 'EDGE_UNLINK');
+    -- Orphan Check
     IF (
         SELECT
             count(*)
@@ -105,7 +131,7 @@ BEGIN
             dag_edge
         WHERE
             child_id = p_child) <= 1 THEN
-        RAISE EXCEPTION 'ERR_WOULD_ORPHAN';
+        RAISE EXCEPTION 'ERR_WOULD_ORPHAN: Node must have at least one parent';
     END IF;
     PERFORM
         _algo_detach_subtree(p_parent, p_child);
@@ -115,8 +141,43 @@ BEGIN
 END;
 $$;
 
--- 5. Invite User (Helper)
-CREATE OR REPLACE FUNCTION rpc_invite_user(p_parent_id uuid, p_label text)
+-- 5. Delete Node (Leaf Only)
+CREATE OR REPLACE FUNCTION rpc_delete_node(p_target_id uuid)
+    RETURNS void
+    LANGUAGE plpgsql
+    SECURITY DEFINER
+    AS $$
+DECLARE
+    ctx graph_context;
+BEGIN
+    ctx := assert_authenticated();
+    PERFORM
+        _lock_node(p_target_id);
+    PERFORM
+        assert_dominance(ctx, p_target_id);
+    PERFORM
+        assert_permission(ctx, 'NODE_DELETE');
+    -- Leaf Check: Does it have children?
+    IF EXISTS (
+        SELECT
+            1
+        FROM
+            dag_edge
+        WHERE
+            parent_id = p_target_id) THEN
+    RAISE EXCEPTION 'ERR_NOT_LEAF: Cannot delete node with children';
+END IF;
+    -- NOTE: 'ON DELETE RESTRICT' in resources will automatically prevent deletion
+    -- if this node owns invoices, etc. No need for manual check here.
+    DELETE FROM dag_node
+    WHERE id = p_target_id;
+    -- Edges cascade automatically
+    -- Closure cascades automatically
+END;
+$$;
+
+-- 6. Invite User (with optional expiry)
+CREATE OR REPLACE FUNCTION rpc_invite_user(p_parent_id uuid, p_label text, p_expires_in interval DEFAULT NULL)
     RETURNS text
     LANGUAGE plpgsql
     SECURITY DEFINER
@@ -125,14 +186,18 @@ DECLARE
     ctx graph_context;
     v_raw_token text := gen_random_uuid()::text;
     v_new uuid;
+    v_expires timestamptz;
 BEGIN
     ctx := assert_authenticated();
     PERFORM
+        _lock_node(p_parent_id);
+    PERFORM
         assert_dominance(ctx, p_parent_id);
     PERFORM
-        assert_permission(ctx, 'GRAPH_EDIT');
+        assert_permission(ctx, 'NODE_CREATE');
+    v_expires := now() + COALESCE(p_expires_in, interval '24 hours');
     INSERT INTO dag_node(type, label, invite_hash, invite_expires)
-        VALUES ('user', p_label, crypt(v_raw_token, gen_salt('bf')), now() + interval '24 hours')
+        VALUES ('user', p_label, crypt(v_raw_token, gen_salt('bf')), v_expires)
     RETURNING
         id INTO v_new;
     PERFORM
@@ -145,7 +210,7 @@ BEGIN
 END;
 $$;
 
--- 6. Claim Invite (Public Endpoint)
+-- 7. Claim Invite
 CREATE OR REPLACE FUNCTION rpc_claim_invite(p_token text)
     RETURNS boolean
     LANGUAGE plpgsql
@@ -157,7 +222,6 @@ BEGIN
     IF auth.uid() IS NULL THEN
         RAISE EXCEPTION 'ERR_NOT_AUTHENTICATED';
     END IF;
-    -- Check if user already has a node
     IF EXISTS (
         SELECT
             1

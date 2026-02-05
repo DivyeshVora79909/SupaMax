@@ -22,7 +22,6 @@ CREATE OR REPLACE FUNCTION _algo_attach_subtree(p_parent uuid, p_child uuid)
     SECURITY DEFINER
     AS $$
 BEGIN
-    -- A x B Cartesian Product for new paths
     INSERT INTO closure_dominance(ancestor_id, descendant_id, depth)
     SELECT
         a.ancestor_id,
@@ -40,7 +39,7 @@ END;
 $$;
 
 -- 3. Internal: Detach Subtree (Closure Maintenance)
--- Sophisticated logic to handle multi-path reachability
+-- Used for Unlink. (Delete Node handles its own cascade via FK)
 CREATE OR REPLACE FUNCTION _algo_detach_subtree(p_parent uuid, p_child uuid)
     RETURNS void
     LANGUAGE plpgsql
@@ -58,7 +57,6 @@ BEGIN
         closure_dominance
     WHERE
         descendant_id = p_parent LOOP
-            -- Get all nodes in the subtree being potentially cut off
             SELECT
                 array_agg(descendant_id) INTO v_descendants
             FROM
@@ -68,7 +66,7 @@ BEGIN
             IF v_descendants IS NULL THEN
                 CONTINUE;
             END IF;
-            -- Graph Traversal: Is there ANY other path from Ancestor -> Descendants?
+            -- Graph Traversal: Is there ANY other path?
             WITH RECURSIVE reach(
                 n
 ) AS (
@@ -79,7 +77,7 @@ BEGIN
                 WHERE
                     parent_id = rec_ancestor.ancestor_id
                     AND NOT (parent_id = p_parent
-                        AND child_id = p_child) -- Ignore edge being deleted
+                        AND child_id = p_child) -- Ignore deleted edge
                 UNION
                 SELECT
                     e.child_id

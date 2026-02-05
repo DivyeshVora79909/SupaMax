@@ -18,7 +18,7 @@ $$;
 CREATE OR REPLACE FUNCTION get_perm_id(p_slug text)
     RETURNS int
     LANGUAGE sql
-    STABLE
+    IMMUTABLE
     AS $$
     SELECT
         bit_index
@@ -28,7 +28,8 @@ CREATE OR REPLACE FUNCTION get_perm_id(p_slug text)
         slug = p_slug;
 $$;
 
--- 3. Helper: Calculate Cumulative Permissions (Recursive Math)
+-- 3. Helper: Calculate Effective Permissions (Depth-1 Only)
+-- Change: No recursion. Only sum bits from direct parents that are roles.
 CREATE OR REPLACE FUNCTION _calc_effective_permissions(p_node uuid)
     RETURNS bit (
         256)
@@ -39,61 +40,53 @@ CREATE OR REPLACE FUNCTION _calc_effective_permissions(p_node uuid)
     SELECT
         COALESCE(bit_or(p.permission_bits), B'0'::bit(256))
     FROM
-        closure_dominance cd
-        JOIN dag_node p ON p.id = cd.ancestor_id
+        dag_edge e
+        JOIN dag_node p ON e.parent_id = p.id
     WHERE
-        cd.descendant_id = p_node
+        e.child_id = p_node
         AND p.type = 'role';
+        -- Strict Depth-1 Inheritance
 $$;
 
--- 4. The Context Engine
--- Defines the mathematical set of properties for the current actor
+-- 4. The Context Engine: Optimized for Membership RLS
 CREATE TYPE graph_context AS (
     node_id uuid, -- Who am I?
     perms bit(256), -- What can I do?
-    parent_ids uuid[], -- My immediate environment (Siblings/Membership)
-    ancestor_ids uuid[] -- My Line of Sight (Upwards)
+    membership_ids uuid[] -- Direct parents (Groups/Roles) for Siblings/Resource access
 );
 
 CREATE OR REPLACE FUNCTION get_graph_context()
     RETURNS graph_context
     LANGUAGE plpgsql
-    STABLE -- MEMOIZED: Runs once per query
+    STABLE
     SECURITY DEFINER
     AS $$
 DECLARE
     v_node_id uuid;
     v_perms bit(256);
-    v_parents uuid[];
-    v_ancestors uuid[];
+    v_membership uuid[];
 BEGIN
     v_node_id := current_node_id();
     IF v_node_id IS NULL THEN
         RETURN (NULL,
             B'0'::bit(256),
-            ARRAY[]::uuid[],
             ARRAY[]::uuid[]);
     END IF;
-    -- Parallel-capable calculations
+    -- 1. Calculate Permissions (Depth-1)
     v_perms := _calc_effective_permissions(v_node_id);
-    -- Fetch Direct Parents (Fast Join)
+    -- 2. Fetch Membership (Direct parents that are Groups or Roles)
+    -- This drives the "Membership" RLS check (Siblings & Resources)
     SELECT
-        COALESCE(array_agg(parent_id), ARRAY[]::uuid[]) INTO v_parents
+        COALESCE(array_agg(parent_id), ARRAY[]::uuid[]) INTO v_membership
     FROM
-        dag_edge
+        dag_edge e
+        JOIN dag_node p ON e.parent_id = p.id
     WHERE
-        child_id = v_node_id;
-    -- Fetch Ancestors (Fast Index Scan)
-    SELECT
-        COALESCE(array_agg(ancestor_id), ARRAY[]::uuid[]) INTO v_ancestors
-    FROM
-        closure_dominance
-    WHERE
-        descendant_id = v_node_id;
+        e.child_id = v_node_id
+        AND p.type IN ('group', 'role');
     RETURN (v_node_id,
         v_perms,
-        v_parents,
-        v_ancestors);
+        v_membership);
 END;
 $$;
 

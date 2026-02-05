@@ -22,6 +22,11 @@ BEGIN
     ELSIF TG_OP = 'UPDATE' THEN
         NEW.updated_by_node := current_node_id();
         NEW.updated_at := now();
+        -- Anti-Hiding Check: If changing owner, I must dominate the NEW owner
+        IF NEW.owner_id IS DISTINCT FROM OLD.owner_id THEN
+            PERFORM
+                assert_dominance(assert_authenticated(), NEW.owner_id);
+        END IF;
     END IF;
     RETURN NEW;
 END;
@@ -32,10 +37,11 @@ CREATE TRIGGER trg_invoice_audit
     FOR EACH ROW
     EXECUTE FUNCTION _trigger_audit_invoice();
 
--- 3. Security (RLS)
+-- 3. Security (Granular RLS)
 ALTER TABLE invoice ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "rls_invoice_read" ON invoice
+-- Policy: SELECT
+CREATE POLICY "rls_invoice_select" ON invoice
     FOR SELECT
         USING ((WITH ctx AS (
             SELECT
@@ -43,18 +49,38 @@ CREATE POLICY "rls_invoice_read" ON invoice
             FROM
                 get_graph_context())
                     SELECT
-                        predicate_has_perm(ctx, 'INVOICE_READ') -- Permission Check
-                        AND (predicate_dominates(ctx.node_id, invoice.owner_id) -- Dominance Check
-                        OR invoice.owner_id = ANY (ctx.parent_ids) -- Membership Check (Siblings)
-)));
+                        predicate_has_perm(ctx, 'INV_SELECT') AND (predicate_dominates(ctx.node_id, owner_id) OR owner_id = ANY (ctx.membership_ids))));
 
-CREATE POLICY "rls_invoice_write" ON invoice
-    FOR ALL
+-- Policy: INSERT
+CREATE POLICY "rls_invoice_insert" ON invoice
+    FOR INSERT
+        WITH CHECK ((WITH ctx AS (
+            SELECT
+                *
+            FROM
+                get_graph_context())
+                    SELECT
+                        predicate_has_perm(ctx, 'INV_INSERT') AND (predicate_dominates(ctx.node_id, owner_id) OR owner_id = ANY (ctx.membership_ids))));
+
+-- Policy: UPDATE
+CREATE POLICY "rls_invoice_update" ON invoice
+    FOR UPDATE
         USING ((WITH ctx AS (
             SELECT
                 *
             FROM
                 get_graph_context())
                     SELECT
-                        predicate_has_perm(ctx, 'INVOICE_WRITE') AND (predicate_dominates(ctx.node_id, invoice.owner_id) OR invoice.owner_id = ANY (ctx.parent_ids))));
+                        predicate_has_perm(ctx, 'INV_UPDATE') AND (predicate_dominates(ctx.node_id, owner_id) OR owner_id = ANY (ctx.membership_ids))));
+
+-- Policy: DELETE
+CREATE POLICY "rls_invoice_delete" ON invoice
+    FOR DELETE
+        USING ((WITH ctx AS (
+            SELECT
+                *
+            FROM
+                get_graph_context())
+                    SELECT
+                        predicate_has_perm(ctx, 'INV_DELETE') AND (predicate_dominates(ctx.node_id, owner_id) OR owner_id = ANY (ctx.membership_ids))));
 

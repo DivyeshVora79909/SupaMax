@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS permission_manifest(
     description text
 );
 
--- 3. Indexes (Performance Optimization)
+-- 3. Indexes
 CREATE INDEX idx_edge_parent ON dag_edge(parent_id);
 
 CREATE INDEX idx_edge_child ON dag_edge(child_id);
@@ -68,11 +68,9 @@ CREATE INDEX idx_closure_anc ON closure_dominance(ancestor_id);
 
 CREATE INDEX idx_closure_desc ON closure_dominance(descendant_id);
 
-CREATE INDEX idx_node_auth ON dag_node(auth_user_id);
-
-CREATE UNIQUE INDEX idx_node_invite ON dag_node(invite_hash)
+CREATE INDEX idx_node_auth_lookup ON dag_node(auth_user_id)
 WHERE
-    invite_hash IS NOT NULL;
+    auth_user_id IS NOT NULL;
 
 CREATE INDEX idx_node_role_bits ON dag_node(id) INCLUDE (permission_bits)
 WHERE
@@ -87,4 +85,3 @@ ALTER TABLE closure_dominance ENABLE ROW LEVEL SECURITY;
 
 REVOKE ALL ON dag_node, dag_edge, closure_dominance FROM public, anon, authenticated;
 
--- We grant SELECT only via specific policies later

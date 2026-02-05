@@ -8,10 +8,19 @@ BEGIN
     -- 1. Manifest
     INSERT INTO permission_manifest(bit_index, slug, description)
     VALUES
-        (10, 'GRAPH_EDIT', 'Can add/remove nodes and edges'),
-(11, 'ROLE_MANAGE', 'Can edit role permissions'),
-(20, 'INVOICE_READ', 'Can view invoices'),
-(21, 'INVOICE_WRITE', 'Can create/update/delete invoices')
+        -- Graph Structural
+(0, 'GRAPH_READ', 'Can view the graph structure (siblings/descendants)'),
+(1, 'NODE_CREATE', 'Can create new nodes (group/role/user)'),
+(2, 'NODE_DELETE', 'Can delete leaf nodes'),
+(3, 'EDGE_LINK', 'Can link existing nodes'),
+(4, 'EDGE_UNLINK', 'Can unlink nodes'),
+        -- Role Management
+(10, 'ROLE_MANAGE', 'Can edit role permission bits'),
+        -- Invoice Resources
+(20, 'INV_SELECT', 'Can view invoices'),
+(21, 'INV_INSERT', 'Can create invoices'),
+(22, 'INV_UPDATE', 'Can edit invoices'),
+(23, 'INV_DELETE', 'Can delete invoices')
     ON CONFLICT
         DO NOTHING;
     -- 2. Nodes
@@ -24,10 +33,10 @@ BEGIN
     ON CONFLICT
         DO NOTHING;
     INSERT INTO dag_node(id, type, label, invite_hash, invite_expires)
-        VALUES (v_admin, 'user', 'ROOT_ADMIN', crypt('password123', gen_salt('bf')), now() + interval '10 years')
+        VALUES (v_admin, 'user', 'ROOT_ADMIN', crypt('password123', gen_salt('bf')), now() + interval '2 years')
     ON CONFLICT
         DO NOTHING;
-    -- 3. Closures
+    -- 3. Closures & Edges
     PERFORM
         _algo_init_node(v_root);
     PERFORM
