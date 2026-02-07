@@ -2,6 +2,8 @@
 CREATE TABLE IF NOT EXISTS invoice(
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     amount numeric NOT NULL,
+    pdf_path text,
+    excel_path text,
     owner_id uuid NOT NULL REFERENCES dag_node(id) ON DELETE RESTRICT,
     created_by_node uuid REFERENCES dag_node(id) ON DELETE SET NULL,
     updated_by_node uuid REFERENCES dag_node(id) ON DELETE SET NULL,
@@ -37,50 +39,80 @@ CREATE TRIGGER trg_invoice_audit
     FOR EACH ROW
     EXECUTE FUNCTION _trigger_audit_invoice();
 
--- 3. Security (Granular RLS)
+-- 3. Security
 ALTER TABLE invoice ENABLE ROW LEVEL SECURITY;
 
 -- Policy: SELECT
 CREATE POLICY "rls_invoice_select" ON invoice
     FOR SELECT
-        USING ((WITH ctx AS (
-            SELECT
-                *
-            FROM
-                get_graph_context())
-                    SELECT
-                        predicate_has_perm(ctx, 'INV_SELECT') AND (predicate_dominates(ctx.node_id, owner_id) OR owner_id = ANY (ctx.membership_ids))));
+        USING (predicate_has_perm(get_graph_context(), 'INV_SELECT')
+            AND (owner_id = ANY ((get_graph_context()).membership_ids) OR EXISTS (
+                SELECT
+                    1
+                FROM
+                    closure_dominance cd
+                WHERE
+                    cd.ancestor_id =(get_graph_context()).node_id AND cd.descendant_id = invoice.owner_id)));
 
 -- Policy: INSERT
 CREATE POLICY "rls_invoice_insert" ON invoice
     FOR INSERT
-        WITH CHECK ((WITH ctx AS (
+        WITH CHECK (predicate_has_perm(get_graph_context(), 'INV_INSERT')
+        AND (owner_id = ANY ((get_graph_context()).membership_ids) OR EXISTS (
             SELECT
-                *
+                1
             FROM
-                get_graph_context())
-                    SELECT
-                        predicate_has_perm(ctx, 'INV_INSERT') AND (predicate_dominates(ctx.node_id, owner_id) OR owner_id = ANY (ctx.membership_ids))));
+                closure_dominance cd
+            WHERE
+                cd.ancestor_id =(get_graph_context()).node_id AND cd.descendant_id = invoice.owner_id)));
 
 -- Policy: UPDATE
 CREATE POLICY "rls_invoice_update" ON invoice
     FOR UPDATE
-        USING ((WITH ctx AS (
-            SELECT
-                *
-            FROM
-                get_graph_context())
-                    SELECT
-                        predicate_has_perm(ctx, 'INV_UPDATE') AND (predicate_dominates(ctx.node_id, owner_id) OR owner_id = ANY (ctx.membership_ids))));
+        USING (predicate_has_perm(get_graph_context(), 'INV_UPDATE')
+            AND (owner_id = ANY ((get_graph_context()).membership_ids) OR EXISTS (
+                SELECT
+                    1
+                FROM
+                    closure_dominance cd
+                WHERE
+                    cd.ancestor_id =(get_graph_context()).node_id AND cd.descendant_id = invoice.owner_id)));
 
 -- Policy: DELETE
 CREATE POLICY "rls_invoice_delete" ON invoice
     FOR DELETE
-        USING ((WITH ctx AS (
-            SELECT
-                *
-            FROM
-                get_graph_context())
+        USING (predicate_has_perm(get_graph_context(), 'INV_DELETE')
+            AND (owner_id = ANY ((get_graph_context()).membership_ids) OR EXISTS (
+                SELECT
+                    1
+                FROM
+                    closure_dominance cd
+                WHERE
+                    cd.ancestor_id =(get_graph_context()).node_id AND cd.descendant_id = invoice.owner_id)));
+
+-- 4. Bucket
+INSERT INTO storage.buckets(id, name, public)
+    VALUES ('invoices', 'invoices', FALSE)
+ON CONFLICT (id)
+    DO NOTHING;
+
+-- 5. Storage Security
+CREATE POLICY "rls_invoice_storage_access" ON storage.objects
+    FOR ALL TO authenticated
+        USING (bucket_id = 'invoices'
+            AND EXISTS (
+                SELECT
+                    1
+                FROM
+                    invoice i
+                WHERE
+                    i.id::text = split_part(name, '/', 1)))
+                WITH CHECK (bucket_id = 'invoices'
+                AND EXISTS (
                     SELECT
-                        predicate_has_perm(ctx, 'INV_DELETE') AND (predicate_dominates(ctx.node_id, owner_id) OR owner_id = ANY (ctx.membership_ids))));
+                        1
+                    FROM
+                        invoice i
+                    WHERE
+                        i.id::text = split_part(name, '/', 1)));
 

@@ -1,44 +1,75 @@
--- 1. Closure Table: Structural Access (Public Read)
--- Required for Graph UI traversal
+ALTER TABLE dag_node ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE dag_edge ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE closure_dominance ENABLE ROW LEVEL SECURITY;
+
+-- 1. Closure
 CREATE POLICY "rls_closure_read" ON closure_dominance
-    FOR SELECT
+    FOR SELECT TO authenticated
         USING (TRUE);
 
--- 2. Nodes: Granular Visibility
--- Logic: Has Permission AND (Dominates Node OR Node is Sibling)
-CREATE POLICY "rls_node_read" ON dag_node
-    FOR SELECT
-        USING ((WITH ctx AS (
+-- 2. Nodes
+CREATE OR REPLACE VIEW view_graph_nodes AS
+WITH ctx AS (
+    SELECT
+        *
+    FROM
+        get_graph_context())
+SELECT
+    n.id,
+    n.type,
+    n.label,
+    n.auth_user_id,
+    CASE WHEN predicate_has_perm(ROW (ctx.node_id, ctx.perms, ctx.membership_ids)::graph_context, 'NODE_CREATE') THEN
+        n.invite_hash
+    ELSE
+        NULL
+    END AS invite_hash,
+    n.invite_expires,
+    n.permission_bits,
+    n.created_at,
+    n.updated_at
+FROM
+    dag_node n
+    JOIN ctx ON TRUE
+    LEFT JOIN closure_dominance cd ON cd.ancestor_id = ctx.node_id
+        AND cd.descendant_id = n.id
+WHERE
+    predicate_has_perm(ROW (ctx.node_id, ctx.perms, ctx.membership_ids)::graph_context, 'GRAPH_READ')
+    AND (cd.ancestor_id IS NOT NULL
+        OR EXISTS (
             SELECT
-                *
+                1
             FROM
-                get_graph_context())
-                    SELECT
-                        predicate_has_perm(ctx, 'GRAPH_READ') AND (
-                        -- Dominance (I own it)
-                        predicate_dominates(ctx.node_id, id) OR
-                        -- Membership (It is my sibling: Child of my parent Groups/Roles)
-                        EXISTS (
-                            SELECT
-                                1
-                            FROM
-                                dag_edge e
-                            WHERE
-                                e.child_id = id AND e.parent_id = ANY (ctx.membership_ids)))));
+                dag_edge e
+            WHERE
+                e.child_id = n.id
+                AND e.parent_id = ANY (ctx.membership_ids)));
 
--- 3. Edges: Structural Consistency
--- Logic: Can see edge if can see Parent AND Child
-CREATE POLICY "rls_edge_read" ON dag_edge
-    FOR SELECT
-        USING ((WITH ctx AS (
-            SELECT
-                *
-            FROM
-                get_graph_context())
-                    SELECT
-                        predicate_has_perm(ctx, 'GRAPH_READ') AND (
-                        -- Dominance (I own the relationship)
-                        predicate_dominates(ctx.node_id, parent_id) OR
-                        -- Membership (Edge belongs to my parent Group/Role)
-                        parent_id = ANY (ctx.membership_ids))));
+-- 3. Edges
+CREATE OR REPLACE VIEW view_graph_edges AS
+WITH ctx AS (
+    SELECT
+        *
+    FROM
+        get_graph_context())
+SELECT
+    e.parent_id,
+    e.child_id,
+    e.created_at
+FROM
+    dag_edge e
+    JOIN ctx ON TRUE
+    LEFT JOIN closure_dominance cd ON cd.ancestor_id = ctx.node_id
+        AND cd.descendant_id = e.parent_id
+WHERE
+    predicate_has_perm(ROW (ctx.node_id, ctx.perms, ctx.membership_ids)::graph_context, 'GRAPH_READ')
+    AND (cd.ancestor_id IS NOT NULL
+        OR e.parent_id = ANY (ctx.membership_ids));
+
+-- 4. Permissions
+GRANT SELECT ON view_graph_nodes TO authenticated;
+
+GRANT SELECT ON view_graph_edges TO authenticated;
 
