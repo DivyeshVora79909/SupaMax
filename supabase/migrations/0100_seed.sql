@@ -14,13 +14,18 @@ BEGIN
 (2, 'NODE_DELETE', 'Can delete leaf nodes'),
 (3, 'EDGE_LINK', 'Can link existing nodes'),
 (4, 'EDGE_UNLINK', 'Can unlink nodes'),
-        -- Role Management
+        -- Role
 (10, 'ROLE_MANAGE', 'Can edit role permission bits'),
         -- Invoice Resources
 (20, 'INV_SELECT', 'Can view invoices'),
 (21, 'INV_INSERT', 'Can create invoices'),
 (22, 'INV_UPDATE', 'Can edit invoices'),
-(23, 'INV_DELETE', 'Can delete invoices')
+(23, 'INV_DELETE', 'Can delete invoices'),
+        -- Customers
+(30, 'CUST_SELECT', 'View customers'),
+(31, 'CUST_INSERT', 'Create customers'),
+(32, 'CUST_UPDATE', 'Edit customers'),
+(33, 'CUST_DELETE', 'Delete customers')
     ON CONFLICT
         DO NOTHING;
     -- 2. Nodes
@@ -56,6 +61,11 @@ BEGIN
         DO NOTHING;
     PERFORM
         _algo_attach_subtree(v_role, v_admin);
+    -- 5. Locked
+    ALTER TABLE permission_manifest ENABLE ROW LEVEL SECURITY;
+    CREATE POLICY "Allow public read" ON permission_manifest
+        FOR SELECT TO public, authenticated
+            USING (TRUE );
 END
 $$;
 

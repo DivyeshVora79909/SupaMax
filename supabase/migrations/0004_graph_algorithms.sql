@@ -3,6 +3,7 @@ CREATE OR REPLACE FUNCTION _algo_detect_cycle(p_parent uuid, p_child uuid)
     RETURNS boolean
     LANGUAGE sql
     STABLE
+    SET search_path = public
     AS $$
     SELECT
         EXISTS(
@@ -20,6 +21,7 @@ CREATE OR REPLACE FUNCTION _algo_attach_subtree(p_parent uuid, p_child uuid)
     RETURNS void
     LANGUAGE plpgsql
     SECURITY DEFINER
+    SET search_path = public
     AS $$
 BEGIN
     INSERT INTO closure_dominance(ancestor_id, descendant_id, depth)
@@ -44,6 +46,7 @@ CREATE OR REPLACE FUNCTION _algo_detach_subtree(p_parent uuid, p_child uuid)
     RETURNS void
     LANGUAGE plpgsql
     SECURITY DEFINER
+    SET search_path = public
     AS $$
 DECLARE
     rec_ancestor record;
@@ -114,6 +117,7 @@ $$;
 CREATE OR REPLACE FUNCTION _algo_init_node(p_node uuid)
     RETURNS void
     LANGUAGE sql
+    SET search_path = public
     AS $$
     INSERT INTO closure_dominance(ancestor_id, descendant_id, depth)
         VALUES(p_node, p_node, 0)

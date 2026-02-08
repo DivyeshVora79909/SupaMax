@@ -4,6 +4,7 @@ CREATE OR REPLACE FUNCTION current_node_id()
     LANGUAGE sql
     STABLE
     SECURITY DEFINER
+    SET search_path = public
     AS $$
     SELECT
         id
@@ -19,6 +20,7 @@ CREATE OR REPLACE FUNCTION get_perm_id(p_slug text)
     RETURNS int
     LANGUAGE sql
     IMMUTABLE
+    SET search_path = public
     AS $$
     SELECT
         bit_index
@@ -36,6 +38,7 @@ CREATE OR REPLACE FUNCTION _calc_effective_permissions(p_node uuid)
     LANGUAGE sql
     STABLE
     SECURITY DEFINER
+    SET search_path = public
     AS $$
     SELECT
         COALESCE(bit_or(p.permission_bits), B'0'::bit(256))
@@ -60,6 +63,7 @@ CREATE OR REPLACE FUNCTION get_graph_context()
     LANGUAGE plpgsql
     STABLE
     SECURITY DEFINER
+    SET search_path = public
     AS $$
 DECLARE
     v_node_id uuid;

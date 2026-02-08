@@ -16,6 +16,7 @@ CREATE OR REPLACE FUNCTION _trigger_audit_invoice()
     RETURNS TRIGGER
     LANGUAGE plpgsql
     SECURITY DEFINER
+    SET search_path = public
     AS $$
 BEGIN
     IF TG_OP = 'INSERT' THEN

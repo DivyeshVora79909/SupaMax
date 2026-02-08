@@ -2,6 +2,7 @@
 CREATE OR REPLACE FUNCTION _lock_node(p_node uuid)
     RETURNS void
     LANGUAGE sql
+    SET search_path = public
     AS $$
     SELECT
         pg_advisory_xact_lock(hashtext(p_node::text));
@@ -12,6 +13,7 @@ CREATE OR REPLACE FUNCTION rpc_create_group(p_parent_id uuid, p_label text)
     RETURNS uuid
     LANGUAGE plpgsql
     SECURITY DEFINER
+    SET search_path = public
     AS $$
 DECLARE
     ctx graph_context;
@@ -44,6 +46,7 @@ CREATE OR REPLACE FUNCTION rpc_create_role(p_parent_id uuid, p_label text, p_bit
     RETURNS uuid
     LANGUAGE plpgsql
     SECURITY DEFINER
+    SET search_path = public
     AS $$
 DECLARE
     ctx graph_context;
@@ -81,6 +84,7 @@ CREATE OR REPLACE FUNCTION rpc_link_node(p_parent uuid, p_child uuid)
     RETURNS void
     LANGUAGE plpgsql
     SECURITY DEFINER
+    SET search_path = public
     AS $$
 DECLARE
     ctx graph_context;
@@ -110,6 +114,7 @@ CREATE OR REPLACE FUNCTION rpc_unlink_node(p_parent uuid, p_child uuid)
     RETURNS void
     LANGUAGE plpgsql
     SECURITY DEFINER
+    SET search_path = public
     AS $$
 DECLARE
     ctx graph_context;
@@ -146,6 +151,7 @@ CREATE OR REPLACE FUNCTION rpc_delete_node(p_target_id uuid)
     RETURNS void
     LANGUAGE plpgsql
     SECURITY DEFINER
+    SET search_path = public
     AS $$
 DECLARE
     ctx graph_context;
@@ -181,6 +187,7 @@ CREATE OR REPLACE FUNCTION rpc_invite_user(p_parent_id uuid, p_label text, p_exp
     RETURNS text
     LANGUAGE plpgsql
     SECURITY DEFINER
+    SET search_path = public
     AS $$
 DECLARE
     ctx graph_context;
@@ -215,6 +222,7 @@ CREATE OR REPLACE FUNCTION rpc_claim_invite(p_token text)
     RETURNS boolean
     LANGUAGE plpgsql
     SECURITY DEFINER
+    SET search_path = public
     AS $$
 DECLARE
     v_node_id uuid;
