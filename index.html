@@ -1,0 +1,928 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>SupaMax / Tri-State Architect</title>
+
+    <!-- Infrastructure -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/@supabase/supabase-js@2.25.0/dist/umd/supabase.js"></script>
+
+    <!-- Graph Engine -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
+
+    <!-- Icons -->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+
+    <style>
+      :root {
+        --bg-canvas: #f1f5f9;
+      }
+      body {
+        font-family: "Inter", system-ui, sans-serif;
+        height: 100vh;
+        overflow: hidden;
+        background: var(--bg-canvas);
+      }
+      .mono {
+        font-family: "JetBrains Mono", monospace;
+      }
+
+      /* Transition Utilities */
+      .fade-enter-active,
+      .fade-leave-active {
+        transition: opacity 0.2s ease;
+      }
+      .fade-enter-from,
+      .fade-leave-to {
+        opacity: 0;
+      }
+
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar {
+        width: 4px;
+        height: 4px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app" class="h-full flex flex-col text-slate-800">
+      <!-- TOP BAR: Status & Config -->
+      <header
+        class="h-10 border-b bg-white flex items-center justify-between px-3 z-30 shadow-sm"
+      >
+        <div class="flex items-center gap-2">
+          <i class="fa-solid fa-layer-group text-slate-700"></i>
+          <span class="font-bold text-xs tracking-wide"
+            >SUPAMAX <span class="text-slate-400">ARCHITECT v3</span></span
+          >
+        </div>
+        <div class="flex items-center gap-3">
+          <div
+            v-if="isConnected"
+            class="flex items-center gap-2 text-[10px] font-mono text-slate-500"
+          >
+            <span>V:{{ graph.nodes.length }}</span>
+            <span>E:{{ graph.edges.length }}</span>
+            <span class="text-emerald-600 font-bold">ONLINE</span>
+          </div>
+          <div v-else class="text-[10px] font-bold text-red-500 animate-pulse">
+            DISCONNECTED
+          </div>
+          <button
+            @click="showConfig = !showConfig"
+            class="text-slate-400 hover:text-slate-700"
+          >
+            <i class="fa-solid fa-gear"></i>
+          </button>
+        </div>
+      </header>
+
+      <!-- MAIN LAYOUT -->
+      <div class="flex-1 flex overflow-hidden">
+        <!-- LEFT PANEL: Operations Control -->
+        <aside class="w-80 bg-white border-r flex flex-col z-20 shadow-xl">
+          <!-- 1. SUBJECT (The Actor) -->
+          <div class="p-3 border-b border-slate-100 bg-slate-50/50">
+            <div class="flex justify-between items-center mb-1">
+              <label
+                class="text-[9px] uppercase font-bold text-slate-400 tracking-wider"
+                >Subject (Actor)</label
+              >
+              <button
+                v-if="subject"
+                @click="subject=null"
+                class="text-[9px] text-red-400 hover:text-red-600"
+              >
+                CLEAR
+              </button>
+            </div>
+
+            <div
+              v-if="!subject"
+              class="p-3 border-2 border-dashed border-slate-200 rounded text-center"
+            >
+              <div class="text-[10px] text-slate-400 italic">
+                No Active Identity
+              </div>
+              <div class="text-[9px] text-slate-300 mt-1">
+                Select node → Click "Set Actor"
+              </div>
+            </div>
+
+            <div
+              v-else
+              class="bg-indigo-50 border border-indigo-200 rounded p-2 flex items-start gap-2 shadow-sm"
+            >
+              <div class="mt-0.5">
+                <i class="fa-solid fa-user-shield text-indigo-600 text-xs"></i>
+              </div>
+              <div class="overflow-hidden">
+                <div class="font-bold text-xs text-indigo-900 truncate">
+                  {{ subject.label }}
+                </div>
+                <div class="font-mono text-[9px] text-indigo-500 truncate">
+                  {{ subject.id }}
+                </div>
+                <div class="mt-1 flex gap-1">
+                  <span
+                    class="text-[9px] bg-indigo-100 text-indigo-700 px-1 rounded uppercase"
+                    >{{ subject.type }}</span
+                  >
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. OPERANDS (The Targets) -->
+          <div class="flex-1 flex flex-col min-h-0 bg-slate-50">
+            <div class="p-2 grid grid-cols-1 gap-2">
+              <!-- Primary Operand (O1) -->
+              <div
+                :class="`rounded p-2 border ${op1 ? 'bg-white border-blue-300 shadow-sm' : 'border-slate-200 border-dashed'}`"
+              >
+                <div class="flex justify-between items-center mb-1">
+                  <span class="text-[9px] font-bold text-blue-500 uppercase"
+                    ><i class="fa-solid fa-1 mr-1"></i> Context (Parent)</span
+                  >
+                  <button
+                    v-if="op1"
+                    @click="op1=null"
+                    class="text-slate-300 hover:text-red-500"
+                  >
+                    <i class="fa-solid fa-times"></i>
+                  </button>
+                </div>
+                <div
+                  v-if="op1"
+                  class="text-xs font-bold text-slate-800 truncate"
+                >
+                  {{ op1.label }}
+                </div>
+                <div v-else class="text-[10px] text-slate-400 italic">
+                  Click any node
+                </div>
+              </div>
+
+              <!-- Secondary Operand (O2) -->
+              <div
+                :class="`rounded p-2 border ${op2 ? 'bg-white border-purple-300 shadow-sm' : 'border-slate-200 border-dashed'}`"
+              >
+                <div class="flex justify-between items-center mb-1">
+                  <span class="text-[9px] font-bold text-purple-500 uppercase"
+                    ><i class="fa-solid fa-2 mr-1"></i> Operand (Child)</span
+                  >
+                  <button
+                    v-if="op2"
+                    @click="op2=null"
+                    class="text-slate-300 hover:text-red-500"
+                  >
+                    <i class="fa-solid fa-times"></i>
+                  </button>
+                </div>
+                <div
+                  v-if="op2"
+                  class="text-xs font-bold text-slate-800 truncate"
+                >
+                  {{ op2.label }}
+                </div>
+                <div v-else class="text-[10px] text-slate-400 italic">
+                  Ctrl + Click node
+                </div>
+              </div>
+
+              <!-- Visual Arrow -->
+              <div v-if="op1 && op2" class="flex justify-center -my-1 z-10">
+                <div
+                  class="bg-white border rounded-full px-2 py-0.5 text-[9px] text-slate-500 shadow-sm"
+                >
+                  <i
+                    v-if="areLinked"
+                    class="fa-solid fa-link text-emerald-500"
+                  ></i>
+                  <i v-else class="fa-solid fa-arrow-down text-slate-300"></i>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3. ACTIONS (Computed) -->
+            <div
+              class="flex-1 overflow-y-auto p-3 space-y-3 border-t border-slate-200 bg-white"
+            >
+              <label
+                class="text-[9px] uppercase font-bold text-slate-400 block mb-1"
+                >Available Operations</label
+              >
+
+              <div
+                v-if="!subject"
+                class="text-xs text-red-400 bg-red-50 p-2 rounded border border-red-100 text-center"
+              >
+                Auth Required: Set Actor first.
+              </div>
+
+              <div
+                v-else-if="!op1"
+                class="text-xs text-slate-400 text-center py-4"
+              >
+                Select a Context node (1) to see actions.
+              </div>
+
+              <div v-else class="space-y-2">
+                <!-- CREATION (S + O1) -->
+                <div class="space-y-1">
+                  <button
+                    @click="openModal('create_group')"
+                    class="w-full text-left px-3 py-2 bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 rounded transition group"
+                  >
+                    <div class="flex items-center gap-2">
+                      <div
+                        class="w-6 h-6 rounded bg-white border flex items-center justify-center text-emerald-600 group-hover:scale-110 transition"
+                      >
+                        <i class="fa-regular fa-folder-open"></i>
+                      </div>
+                      <div>
+                        <div class="text-[10px] font-bold text-slate-700">
+                          Create Group
+                        </div>
+                        <div class="text-[9px] text-slate-400">
+                          Inside '{{ op1.label }}'
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+
+                  <button
+                    @click="openModal('create_role')"
+                    class="w-full text-left px-3 py-2 bg-slate-50 hover:bg-purple-50 border border-slate-200 hover:border-purple-300 rounded transition group"
+                  >
+                    <div class="flex items-center gap-2">
+                      <div
+                        class="w-6 h-6 rounded bg-white border flex items-center justify-center text-purple-600 group-hover:scale-110 transition"
+                      >
+                        <i class="fa-solid fa-shield-halved"></i>
+                      </div>
+                      <div>
+                        <div class="text-[10px] font-bold text-slate-700">
+                          Define Role
+                        </div>
+                        <div class="text-[9px] text-slate-400">
+                          Policy attached to '{{ op1.label }}'
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+
+                  <button
+                    @click="openModal('invite_user')"
+                    class="w-full text-left px-3 py-2 bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-300 rounded transition group"
+                  >
+                    <div class="flex items-center gap-2">
+                      <div
+                        class="w-6 h-6 rounded bg-white border flex items-center justify-center text-blue-600 group-hover:scale-110 transition"
+                      >
+                        <i class="fa-solid fa-user-plus"></i>
+                      </div>
+                      <div>
+                        <div class="text-[10px] font-bold text-slate-700">
+                          Invite User
+                        </div>
+                        <div class="text-[9px] text-slate-400">
+                          Member of '{{ op1.label }}'
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                </div>
+
+                <!-- LINKING (S + O1 + O2) -->
+                <div
+                  v-if="op2 && op1.id !== op2.id"
+                  class="pt-2 border-t border-dashed"
+                >
+                  <button
+                    v-if="!areLinked"
+                    @click="execute('rpc_link_node')"
+                    class="w-full bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold py-2 rounded flex items-center justify-center gap-2"
+                  >
+                    <i class="fa-solid fa-link"></i> Link {{ op1.label }} → {{
+                    op2.label }}
+                  </button>
+                  <button
+                    v-else
+                    @click="execute('rpc_unlink_node')"
+                    class="w-full bg-white border border-red-200 text-red-600 hover:bg-red-50 text-xs font-bold py-2 rounded flex items-center justify-center gap-2"
+                  >
+                    <i class="fa-solid fa-unlink"></i> Unlink {{ op1.label }} ↛
+                    {{ op2.label }}
+                  </button>
+                </div>
+
+                <!-- DESTRUCTION (S + O1) -->
+                <div class="pt-2 border-t border-dashed">
+                  <button
+                    @click="execute('rpc_delete_node')"
+                    class="w-full text-red-500 hover:text-red-700 text-[10px] font-bold py-1 hover:underline"
+                  >
+                    Delete '{{ op1.label }}'
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 4. LOGS -->
+          <div
+            class="h-32 bg-slate-900 border-t border-slate-800 flex flex-col font-mono text-[9px] p-2 overflow-y-auto"
+          >
+            <div v-for="log in logs" :key="log.id" class="mb-1">
+              <span class="text-slate-500">{{ log.time }}</span>
+              <span :class="log.err ? 'text-red-400' : 'text-emerald-400'"
+                >{{ log.msg }}</span
+              >
+            </div>
+          </div>
+        </aside>
+
+        <!-- CENTER: Graph Canvas -->
+        <main class="flex-1 relative bg-slate-100">
+          <div id="cy" class="absolute inset-0"></div>
+
+          <!-- Graph Legend/Help -->
+          <div class="absolute top-4 right-4 pointer-events-none space-y-2">
+            <div
+              class="bg-white/90 backdrop-blur p-2 rounded shadow-sm border border-slate-200 text-[9px] text-slate-500"
+            >
+              <div>
+                <span class="font-bold text-slate-800">Click</span> : Select
+                Context (1)
+              </div>
+              <div>
+                <span class="font-bold text-slate-800">Ctrl+Click</span> :
+                Select Operand (2)
+              </div>
+            </div>
+          </div>
+        </main>
+
+        <!-- RIGHT: Inspector Panel (Context Aware) -->
+        <aside
+          class="w-64 bg-white border-l z-20 shadow-xl overflow-y-auto"
+          v-if="inspectorNode"
+        >
+          <div
+            class="p-3 border-b bg-slate-50 flex justify-between items-center"
+          >
+            <span class="font-bold text-xs uppercase text-slate-600"
+              >Inspector</span
+            >
+            <button
+              @click="inspectorNode=null"
+              class="text-slate-400 hover:text-red-500"
+            >
+              <i class="fa-solid fa-times"></i>
+            </button>
+          </div>
+
+          <div class="p-4 space-y-4">
+            <!-- Quick Action: Make Subject -->
+            <button
+              v-if="!subject || subject.id !== inspectorNode.id"
+              @click="setSubject(inspectorNode)"
+              class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 rounded shadow-sm transition"
+            >
+              <i class="fa-solid fa-user-shield mr-1"></i> Act as this Node
+            </button>
+
+            <!-- Props -->
+            <div class="space-y-2">
+              <div class="text-[10px] uppercase font-bold text-slate-400">
+                Properties
+              </div>
+              <div class="bg-slate-50 rounded border p-2 space-y-1">
+                <div class="grid grid-cols-3 text-[10px]">
+                  <span class="text-slate-500">Label</span>
+                  <span class="col-span-2 font-bold font-mono truncate"
+                    >{{ inspectorNode.label }}</span
+                  >
+                </div>
+                <div class="grid grid-cols-3 text-[10px]">
+                  <span class="text-slate-500">Type</span>
+                  <span class="col-span-2 capitalize"
+                    >{{ inspectorNode.type }}</span
+                  >
+                </div>
+                <div class="grid grid-cols-3 text-[10px]">
+                  <span class="text-slate-500">ID</span>
+                  <span class="col-span-2 font-mono text-[8px] truncate"
+                    >{{ inspectorNode.id }}</span
+                  >
+                </div>
+              </div>
+            </div>
+
+            <!-- Invite Logic -->
+            <div
+              v-if="inspectorNode.invite_hash"
+              class="p-2 bg-yellow-50 border border-yellow-200 rounded text-[10px] text-yellow-800"
+            >
+              <i class="fa-solid fa-envelope mr-1"></i> Pending Invite
+              <div class="mt-1 font-mono text-[8px] break-all">
+                {{ inspectorNode.invite_hash.substring(0, 20) }}...
+              </div>
+            </div>
+
+            <!-- Permissions -->
+            <div v-if="inspectorNode.type === 'role'" class="space-y-2">
+              <div class="text-[10px] uppercase font-bold text-slate-400">
+                Permissions
+              </div>
+              <div class="flex flex-wrap gap-1">
+                <span
+                  v-for="p in getReadablePerms(inspectorNode.permission_bits)"
+                  class="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-[9px] font-bold border border-purple-200"
+                >
+                  {{ p }}
+                </span>
+                <span
+                  v-if="!getReadablePerms(inspectorNode.permission_bits).length"
+                  class="text-[9px] text-slate-400 italic"
+                  >No bits set</span
+                >
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <!-- MODAL OVERLAY -->
+      <div
+        v-if="modalMode"
+        class="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center"
+      >
+        <div
+          class="bg-white rounded-lg shadow-2xl w-96 overflow-hidden animate-in fade-in zoom-in duration-200"
+        >
+          <div
+            class="px-4 py-3 border-b bg-slate-50 flex justify-between items-center"
+          >
+            <span class="font-bold text-sm text-slate-700"
+              >{{ modalTitle }}</span
+            >
+            <button
+              @click="modalMode=null"
+              class="text-slate-400 hover:text-slate-600"
+            >
+              <i class="fa-solid fa-times"></i>
+            </button>
+          </div>
+
+          <div class="p-4 space-y-4">
+            <div class="space-y-1">
+              <label class="text-[10px] font-bold text-slate-500 uppercase"
+                >Label / Name</label
+              >
+              <input
+                v-model="form.label"
+                class="w-full text-sm p-2 border rounded focus:ring-2 ring-emerald-500 outline-none"
+                placeholder="e.g. Sales Team"
+                autofocus
+              />
+            </div>
+
+            <div v-if="modalMode === 'create_role'" class="space-y-2">
+              <label class="text-[10px] font-bold text-slate-500 uppercase"
+                >Permissions</label
+              >
+              <div class="h-32 overflow-y-auto border rounded bg-slate-50 p-1">
+                <label
+                  v-for="perm in manifest"
+                  :key="perm.slug"
+                  class="flex items-center gap-2 p-1.5 hover:bg-white rounded cursor-pointer group"
+                >
+                  <input
+                    type="checkbox"
+                    v-model="form.perms"
+                    :value="perm.slug"
+                    class="accent-purple-600"
+                  />
+                  <div>
+                    <div class="text-[10px] font-bold text-slate-700">
+                      {{ perm.slug }}
+                    </div>
+                    <div class="text-[9px] text-slate-400 leading-tight">
+                      {{ perm.description }}
+                    </div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <button
+              @click="submitModal"
+              :disabled="loading"
+              class="w-full bg-slate-800 text-white font-bold text-xs py-2.5 rounded hover:bg-slate-700 transition"
+            >
+              {{ loading ? 'Processing Transaction...' : 'Confirm' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONFIG OVERLAY -->
+      <div
+        v-if="showConfig"
+        class="fixed inset-0 z-50 bg-slate-900/80 flex items-center justify-center"
+      >
+        <div class="bg-white p-6 rounded-lg w-96 space-y-4 shadow-2xl">
+          <h2 class="font-bold text-lg">Connection Settings</h2>
+          <input
+            v-model="config.url"
+            placeholder="Supabase URL"
+            class="w-full text-xs p-2 border rounded"
+          />
+          <input
+            v-model="config.key"
+            type="password"
+            placeholder="Service Key"
+            class="w-full text-xs p-2 border rounded"
+          />
+          <button
+            @click="connect"
+            class="w-full bg-emerald-600 text-white font-bold py-2 rounded"
+          >
+            Save & Connect
+          </button>
+          <button
+            @click="showConfig=false"
+            class="w-full text-slate-500 text-xs hover:underline"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const { createApp, ref, computed, watch, onMounted } = Vue;
+
+      createApp({
+        setup() {
+          // --- State ---
+          const config = ref({
+            url: localStorage.getItem("sm_url") || "",
+            key: localStorage.getItem("sm_key") || "",
+          });
+          const showConfig = ref(!config.value.url);
+          const isConnected = ref(false);
+          const loading = ref(false);
+          const logs = ref([]);
+
+          // Graph Data
+          const graph = ref({ nodes: [], edges: [] });
+          const manifest = ref([]);
+
+          // Tri-State Selection
+          const subject = ref(null); // S (Actor)
+          const op1 = ref(null); // O1 (Primary/Parent)
+          const op2 = ref(null); // O2 (Secondary/Child)
+          const inspectorNode = ref(null); // Current Inspector Target
+
+          // Modal Form
+          const modalMode = ref(null);
+          const form = ref({ label: "", perms: [] });
+
+          // --- Logic: Utils ---
+          const log = (msg, err = false) => {
+            logs.value.unshift({
+              id: Date.now(),
+              time: new Date().toLocaleTimeString(),
+              msg,
+              err,
+            });
+            if (logs.value.length > 50) logs.value.pop();
+          };
+
+          const areLinked = computed(() => {
+            if (!op1.value || !op2.value) return false;
+            return graph.value.edges.some(
+              (e) =>
+                e.parent_id === op1.value.id && e.child_id === op2.value.id,
+            );
+          });
+
+          const modalTitle = computed(() => {
+            if (modalMode.value === "create_group") return "Create Group Node";
+            if (modalMode.value === "create_role") return "Define New Role";
+            if (modalMode.value === "invite_user") return "Invite New User";
+            return "";
+          });
+
+          // --- Logic: Connectivity ---
+          let client = null;
+          let cy = null;
+
+          const connect = async () => {
+            try {
+              loading.value = true;
+              localStorage.setItem("sm_url", config.value.url);
+              localStorage.setItem("sm_key", config.value.key);
+              client = supabase.createClient(
+                config.value.url,
+                config.value.key,
+              );
+
+              // Fetch Meta
+              const { data, error } = await client
+                .from("permission_manifest")
+                .select("*")
+                .order("bit_index");
+              if (error) throw error;
+              manifest.value = data;
+
+              await refreshGraph();
+              isConnected.value = true;
+              showConfig.value = false;
+              log("System Connected");
+            } catch (e) {
+              log(e.message, true);
+            } finally {
+              loading.value = false;
+            }
+          };
+
+          const refreshGraph = async () => {
+            if (!client) return;
+            const [n, e] = await Promise.all([
+              client.from("dag_node").select("*"),
+              client.from("dag_edge").select("*"),
+            ]);
+            graph.value = { nodes: n.data || [], edges: e.data || [] };
+          };
+
+          // --- Logic: Execution ---
+          const execute = async (fn, argsOverride = null) => {
+            if (!subject.value) return log("Error: No Subject set", true);
+            if (!client) return;
+
+            loading.value = true;
+            try {
+              const actorId = subject.value.auth_user_id || subject.value.id;
+
+              let args = argsOverride || {};
+
+              // Auto-map arguments based on Tri-State context if not provided
+              if (!argsOverride) {
+                if (fn === "rpc_link_node" || fn === "rpc_unlink_node") {
+                  args = { parent_id: op1.value.id, child_id: op2.value.id };
+                } else if (fn === "rpc_delete_node") {
+                  args = { target_id: op1.value.id }; // O1 is the victim
+                }
+              }
+
+              log(`RPC: ${fn}`);
+              const { data, error } = await client.rpc("debug", {
+                p_actor_id: actorId,
+                p_fn_name: fn,
+                p_args: args,
+              });
+
+              if (error) throw error;
+              if (!data.success) throw new Error(data.error);
+
+              log("Transaction Confirmed");
+              await refreshGraph();
+
+              // Cleanup selections if objects were deleted
+              if (fn === "rpc_delete_node") {
+                if (op1.value && op1.value.id === args.target_id)
+                  op1.value = null;
+                if (op2.value && op2.value.id === args.target_id)
+                  op2.value = null;
+              }
+            } catch (e) {
+              log(e.message || e.details, true);
+            } finally {
+              loading.value = false;
+            }
+          };
+
+          const openModal = (mode) => {
+            modalMode.value = mode;
+            form.value = { label: "", perms: [] };
+          };
+
+          const submitModal = async () => {
+            const mode = modalMode.value;
+            const args = { parent_id: op1.value.id, label: form.value.label };
+
+            if (mode === "create_role") {
+              // Compile Bitstring
+              const bits = new Array(256).fill("0");
+              form.value.perms.forEach((slug) => {
+                const def = manifest.value.find((m) => m.slug === slug);
+                if (def) bits[def.bit_index] = "1";
+              });
+              args.bits = bits.join("");
+              await execute("rpc_create_role", args);
+            } else if (mode === "create_group") {
+              await execute("rpc_create_group", args);
+            } else if (mode === "invite_user") {
+              await execute("rpc_invite_user", args);
+            }
+            modalMode.value = null;
+          };
+
+          // --- Logic: Helpers ---
+          const getReadablePerms = (bitStr) => {
+            if (!bitStr) return [];
+            return manifest.value
+              .filter((m) => bitStr[m.bit_index] === "1")
+              .map((m) => m.slug);
+          };
+
+          const setSubject = (node) => {
+            subject.value = node;
+            log(`Subject set to: ${node.label}`);
+          };
+
+          // --- Cytoscape Setup ---
+          const initCy = () => {
+            cy = cytoscape({
+              container: document.getElementById("cy"),
+              style: [
+                {
+                  selector: "node",
+                  style: {
+                    label: "data(label)",
+                    color: "#1e293b",
+                    "font-size": "10px",
+                    "font-family": "Inter",
+                    "font-weight": "bold",
+                    "text-valign": "center",
+                    "text-halign": "center",
+                    width: "label",
+                    padding: "10px",
+                  },
+                },
+                {
+                  selector: 'node[type="group"]',
+                  style: {
+                    shape: "round-rectangle",
+                    "background-color": "#ecfdf5",
+                    "border-color": "#10b981",
+                    "border-width": 1,
+                  },
+                },
+                {
+                  selector: 'node[type="role"]',
+                  style: {
+                    shape: "cut-rectangle",
+                    "background-color": "#faf5ff",
+                    "border-color": "#a855f7",
+                    "border-width": 1,
+                  },
+                },
+                {
+                  selector: 'node[type="user"]',
+                  style: {
+                    shape: "ellipse",
+                    "background-color": "#eff6ff",
+                    "border-color": "#3b82f6",
+                    "border-width": 1,
+                  },
+                },
+                {
+                  selector: "edge",
+                  style: {
+                    width: 2,
+                    "curve-style": "bezier",
+                    "target-arrow-shape": "triangle",
+                    "line-color": "#e2e8f0",
+                    "target-arrow-color": "#e2e8f0",
+                  },
+                },
+
+                // Interaction States
+                {
+                  selector: ".subject",
+                  style: {
+                    "border-width": 3,
+                    "border-color": "#4f46e5",
+                    "border-style": "double",
+                  },
+                },
+                {
+                  selector: ".op1",
+                  style: {
+                    "border-width": 2,
+                    "border-color": "#3b82f6",
+                    "background-color": "#fff",
+                  },
+                },
+                {
+                  selector: ".op2",
+                  style: {
+                    "border-width": 2,
+                    "border-color": "#9333ea",
+                    "border-style": "dashed",
+                    "background-color": "#fff",
+                  },
+                },
+              ],
+              layout: { name: "dagre", rankDir: "TB", spacingFactor: 1.2 },
+            });
+
+            cy.on("tap", "node", (evt) => {
+              const node = evt.target.data("raw");
+              inspectorNode.value = node;
+
+              if (evt.originalEvent.ctrlKey || evt.originalEvent.metaKey) {
+                op2.value = node; // Secondary
+              } else {
+                op1.value = node; // Primary
+              }
+            });
+
+            cy.on("tap", (evt) => {
+              if (evt.target === cy) {
+                inspectorNode.value = null;
+              }
+            });
+          };
+
+          // Graph Sync
+          watch(graph, (val) => {
+            if (!cy) return;
+            cy.batch(() => {
+              cy.elements().remove();
+              const nodes = val.nodes.map((n) => ({
+                data: { id: n.id, label: n.label, type: n.type, raw: n },
+              }));
+              const edges = val.edges.map((e) => ({
+                data: { source: e.parent_id, target: e.child_id },
+              }));
+              cy.add([...nodes, ...edges]);
+            });
+            cy.layout({ name: "dagre", rankDir: "TB", animate: true }).run();
+            updateHighlights();
+          });
+
+          watch([subject, op1, op2], updateHighlights);
+
+          function updateHighlights() {
+            if (!cy) return;
+            cy.batch(() => {
+              cy.nodes().removeClass("subject op1 op2");
+              if (subject.value) cy.$id(subject.value.id).addClass("subject");
+              if (op1.value) cy.$id(op1.value.id).addClass("op1");
+              if (op2.value) cy.$id(op2.value.id).addClass("op2");
+            });
+          }
+
+          onMounted(() => {
+            initCy();
+            if (config.value.url) connect();
+          });
+
+          return {
+            config,
+            showConfig,
+            isConnected,
+            loading,
+            logs,
+            connect,
+            subject,
+            op1,
+            op2,
+            inspectorNode,
+            setSubject,
+            graph,
+            manifest,
+            areLinked,
+            modalMode,
+            modalTitle,
+            form,
+            openModal,
+            submitModal,
+            execute,
+            getReadablePerms,
+          };
+        },
+      }).mount("#app");
+    </script>
+  </body>
+</html>

@@ -9,23 +9,38 @@ BEGIN
     INSERT INTO permission_manifest(bit_index, slug, description)
     VALUES
         -- Graph Structural
-(0, 'GRAPH_READ', 'Can view the graph structure (siblings/descendants)'),
-(1, 'NODE_CREATE', 'Can create new nodes (group/role/user)'),
+(0, 'GRAPH_READ', 'Can view the graph structure'),
+(1, 'NODE_CREATE', 'Can create new nodes'),
 (2, 'NODE_DELETE', 'Can delete leaf nodes'),
 (3, 'EDGE_LINK', 'Can link existing nodes'),
 (4, 'EDGE_UNLINK', 'Can unlink nodes'),
         -- Role
 (10, 'ROLE_MANAGE', 'Can edit role permission bits'),
-        -- Invoice Resources
-(20, 'INV_SELECT', 'Can view invoices'),
-(21, 'INV_INSERT', 'Can create invoices'),
-(22, 'INV_UPDATE', 'Can edit invoices'),
-(23, 'INV_DELETE', 'Can delete invoices'),
-        -- Customers
-(30, 'CUST_SELECT', 'View customers'),
-(31, 'CUST_INSERT', 'Create customers'),
-(32, 'CUST_UPDATE', 'Edit customers'),
-(33, 'CUST_DELETE', 'Delete customers')
+        -- Crm Configurations
+(31, 'CRM_LABEL_INSERT', 'Create crm labels'),
+(32, 'CRM_LABEL_UPDATE', 'Update crm labels'),
+(33, 'CRM_LABEL_DELETE', 'Delete crm labels'),
+        -- Account
+(40, 'ACCOUNT_SELECT', 'View accounts'),
+(41, 'ACCOUNT_INSERT', 'Create accounts'),
+(42, 'ACCOUNT_UPDATE', 'Edit accounts'),
+(43, 'ACCOUNT_DELETE', 'Delete accounts'),
+        -- Contact
+(50, 'CONTACT_SELECT', 'View contacts'),
+(51, 'CONTACT_INSERT', 'Create contacts'),
+(52, 'CONTACT_UPDATE', 'Edit contacts'),
+(53, 'CONTACT_DELETE', 'Delete contacts'),
+        -- Opportunity
+(60, 'OPP_SELECT', 'View opportunities'),
+(61, 'OPP_INSERT', 'Create opportunities'),
+(62, 'OPP_UPDATE', 'Edit opportunities'),
+(63, 'OPP_DELETE', 'Delete opportunities'),
+(64, 'OPP_ACTIVITY_INSERT', 'Create Activity logs'),
+        -- Project
+(70, 'PROJ_SELECT', 'View projects'),
+(71, 'PROJ_INSERT', 'Create projects'),
+(72, 'PROJ_UPDATE', 'Edit projects'),
+(73, 'PROJ_DELETE', 'Delete projects')
     ON CONFLICT
         DO NOTHING;
     -- 2. Nodes
@@ -48,7 +63,7 @@ BEGIN
         _algo_init_node(v_role);
     PERFORM
         _algo_init_node(v_admin);
-    -- 4. Edges & Attachments
+    -- 4. Edges
     INSERT INTO dag_edge(parent_id, child_id)
         VALUES (v_root, v_role)
     ON CONFLICT

@@ -4,6 +4,8 @@ ALTER TABLE dag_edge ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE closure_dominance ENABLE ROW LEVEL SECURITY;
 
+GRANT SELECT ON public.closure_dominance TO authenticated;
+
 -- 1. Closure
 CREATE POLICY "rls_closure_read" ON closure_dominance
     FOR SELECT TO authenticated

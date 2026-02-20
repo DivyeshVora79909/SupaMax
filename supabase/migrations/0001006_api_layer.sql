@@ -187,7 +187,7 @@ CREATE OR REPLACE FUNCTION rpc_invite_user(p_parent_id uuid, p_label text, p_exp
     RETURNS text
     LANGUAGE plpgsql
     SECURITY DEFINER
-    SET search_path = public
+    SET search_path = public, extensions
     AS $$
 DECLARE
     ctx graph_context;
@@ -222,7 +222,7 @@ CREATE OR REPLACE FUNCTION rpc_claim_invite(p_token text)
     RETURNS boolean
     LANGUAGE plpgsql
     SECURITY DEFINER
-    SET search_path = public
+    SET search_path = public, extensions
     AS $$
 DECLARE
     v_node_id uuid;

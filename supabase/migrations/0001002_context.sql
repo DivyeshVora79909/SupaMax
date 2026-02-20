@@ -31,7 +31,6 @@ CREATE OR REPLACE FUNCTION get_perm_id(p_slug text)
 $$;
 
 -- 3. Helper: Calculate Effective Permissions (Depth-1 Only)
--- Change: No recursion. Only sum bits from direct parents that are roles.
 CREATE OR REPLACE FUNCTION _calc_effective_permissions(p_node uuid)
     RETURNS bit (
         256)
@@ -48,14 +47,13 @@ CREATE OR REPLACE FUNCTION _calc_effective_permissions(p_node uuid)
     WHERE
         e.child_id = p_node
         AND p.type = 'role';
-        -- Strict Depth-1 Inheritance
 $$;
 
--- 4. The Context Engine: Optimized for Membership RLS
+-- 4. The Context Engine
 CREATE TYPE graph_context AS (
-    node_id uuid, -- Who am I?
-    perms bit(256), -- What can I do?
-    membership_ids uuid[] -- Direct parents (Groups/Roles) for Siblings/Resource access
+    node_id uuid,
+    perms bit(256),
+    membership_ids uuid[]
 );
 
 CREATE OR REPLACE FUNCTION get_graph_context()
@@ -72,14 +70,11 @@ DECLARE
 BEGIN
     v_node_id := current_node_id();
     IF v_node_id IS NULL THEN
-        RETURN (NULL,
+        RETURN (NULL::uuid,
             B'0'::bit(256),
             ARRAY[]::uuid[]);
     END IF;
-    -- 1. Calculate Permissions (Depth-1)
     v_perms := _calc_effective_permissions(v_node_id);
-    -- 2. Fetch Membership (Direct parents that are Groups or Roles)
-    -- This drives the "Membership" RLS check (Siblings & Resources)
     SELECT
         COALESCE(array_agg(parent_id), ARRAY[]::uuid[]) INTO v_membership
     FROM
@@ -91,6 +86,33 @@ BEGIN
     RETURN (v_node_id,
         v_perms,
         v_membership);
+END;
+$$;
+
+-- 5. Helper: Storage Garbage Collector
+CREATE OR REPLACE FUNCTION _trigger_link_storage()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql
+    SECURITY DEFINER
+    SET search_path = public
+    AS $$
+DECLARE
+    v_col text := TG_ARGV[0];
+    v_old_path text;
+    v_new_path text;
+BEGIN
+    EXECUTE format('SELECT ($1).%I', v_col)
+    USING OLD INTO v_old_path;
+    IF TG_OP = 'UPDATE' THEN
+        EXECUTE format('SELECT ($1).%I', v_col)
+        USING NEW INTO v_new_path;
+    END IF;
+        IF v_old_path IS NOT NULL AND (TG_OP = 'DELETE' OR v_old_path IS DISTINCT FROM v_new_path) THEN
+            DELETE FROM storage.objects
+            WHERE bucket_id = 'resources'
+                AND name = v_old_path;
+        END IF;
+        RETURN NULL;
 END;
 $$;
 
