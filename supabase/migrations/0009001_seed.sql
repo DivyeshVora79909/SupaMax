@@ -53,7 +53,7 @@ BEGIN
     ON CONFLICT
         DO NOTHING;
     INSERT INTO dag_node(id, type, label, invite_hash, invite_expires)
-        VALUES (v_admin, 'user', 'ROOT_ADMIN', crypt('password123', gen_salt('bf')), now() + interval '2 years')
+        VALUES (v_admin, 'user', 'ROOT_ADMIN', extensions.crypt('password123', extensions.gen_salt('bf')), now() + interval '2 years')
     ON CONFLICT
         DO NOTHING;
     -- 3. Closures & Edges
