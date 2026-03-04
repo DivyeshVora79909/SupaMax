@@ -3,9 +3,16 @@ CREATE TABLE IF NOT EXISTS opportunity(
     title text NOT NULL,
     proposal_path text,
     contract_path text,
-    status_label text,
+    opportunity_status text,
+    forecast_category text, -- 'pipeline', 'best_case', 'commit', 'closed'
+    lead_source text, -- 'google', 'email', 'reference', 'media', 'network'
     status_order integer DEFAULT 0,
     probability smallint CHECK (probability >= 0 AND probability <= 100),
+    amount decimal(15, 2),
+    currency text DEFAULT 'USD',
+    close_date date,
+    description text,
+    other jsonb,
     account_id uuid NOT NULL REFERENCES account(id) ON DELETE CASCADE,
     created_by_node uuid REFERENCES dag_node(id) ON DELETE SET NULL,
     updated_by_node uuid REFERENCES dag_node(id) ON DELETE SET NULL,
@@ -14,6 +21,12 @@ CREATE TABLE IF NOT EXISTS opportunity(
 );
 
 CREATE INDEX IF NOT EXISTS idx_opportunity_account ON opportunity(account_id);
+
+CREATE INDEX IF NOT EXISTS idx_opp_status ON opportunity(opportunity_status);
+
+CREATE INDEX IF NOT EXISTS idx_opp_close_date ON opportunity(close_date);
+
+CREATE INDEX IF NOT EXISTS idx_opp_amount ON opportunity(amount DESC);
 
 CREATE OR REPLACE FUNCTION _trigger_audit_opportunity()
     RETURNS TRIGGER

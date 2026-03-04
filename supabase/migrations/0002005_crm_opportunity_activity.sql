@@ -45,8 +45,8 @@ DECLARE
     v_changes jsonb := '{}'::jsonb;
 BEGIN
     IF TG_OP = 'UPDATE' THEN
-        IF OLD.status_label IS DISTINCT FROM NEW.status_label THEN
-            v_changes := jsonb_set(v_changes, '{status_label}', jsonb_build_object('from', OLD.status_label, 'to', NEW.status_label));
+        IF OLD.opportunity_status IS DISTINCT FROM NEW.opportunity_status THEN
+            v_changes := jsonb_set(v_changes, '{opportunity_status}', jsonb_build_object('from', OLD.opportunity_status, 'to', NEW.opportunity_status));
         END IF;
         IF OLD.probability IS DISTINCT FROM NEW.probability THEN
             v_changes := jsonb_set(v_changes, '{probability}', jsonb_build_object('from', OLD.probability, 'to', NEW.probability));

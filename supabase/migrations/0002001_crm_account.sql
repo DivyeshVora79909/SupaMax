@@ -3,8 +3,19 @@ CREATE TABLE IF NOT EXISTS account(
     name text NOT NULL,
     pdf_path text,
     excel_path text,
-    status_label text,
+    account_status text,
+    lead_source text, -- 'google', 'email', 'reference', 'media', 'network'
+    account_type text, -- 'prospect', 'customer', 'partner', 'competitor'
+    rating text, -- 'hot', 'warm', 'cold'
     status_order integer DEFAULT 0,
+    annual_revenue decimal(15, 2),
+    head_count integer,
+    industry text,
+    website text,
+    billing_address jsonb,
+    shipping_address jsonb,
+    description text,
+    other jsonb,
     owner_id uuid NOT NULL REFERENCES dag_node(id) ON DELETE RESTRICT,
     created_by_node uuid REFERENCES dag_node(id) ON DELETE SET NULL,
     updated_by_node uuid REFERENCES dag_node(id) ON DELETE SET NULL,
@@ -13,6 +24,14 @@ CREATE TABLE IF NOT EXISTS account(
 );
 
 CREATE INDEX IF NOT EXISTS idx_account_owner ON account(owner_id);
+
+CREATE INDEX IF NOT EXISTS idx_account_status ON account(account_status);
+
+CREATE INDEX IF NOT EXISTS idx_account_type ON account(account_type);
+
+CREATE INDEX IF NOT EXISTS idx_account_name_search ON account(name text_pattern_ops);
+
+CREATE INDEX IF NOT EXISTS idx_account_industry ON account(industry);
 
 CREATE OR REPLACE FUNCTION _trigger_audit_account()
     RETURNS TRIGGER

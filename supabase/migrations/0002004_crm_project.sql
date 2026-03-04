@@ -4,9 +4,20 @@ CREATE TABLE IF NOT EXISTS project(
     description text,
     brief_path text,
     spec_path text,
-    status_label text,
+    project_status text,
     status_order integer DEFAULT 0,
     probability smallint CHECK (probability >= 0 AND probability <= 100),
+    budget decimal(15, 2),
+    actual_cost decimal(15, 2),
+    start_date date,
+    target_end_date date,
+    actual_end_date date,
+    health_status text, -- 'green', 'yellow', 'red'
+    completion_percent integer CHECK (completion_percent BETWEEN 0 AND 100),
+    project_manager text,
+    project_type text, -- 'implementation', 'support', 'consulting'
+    priority text, -- 'low', 'medium', 'high', 'critical'
+    other jsonb,
     opportunity_id uuid NOT NULL REFERENCES opportunity(id) ON DELETE CASCADE,
     created_by_node uuid REFERENCES dag_node(id) ON DELETE SET NULL,
     updated_by_node uuid REFERENCES dag_node(id) ON DELETE SET NULL,
@@ -15,6 +26,10 @@ CREATE TABLE IF NOT EXISTS project(
 );
 
 CREATE INDEX IF NOT EXISTS idx_project_opportunity ON project(opportunity_id);
+
+CREATE INDEX IF NOT EXISTS idx_project_status ON project(project_status);
+
+CREATE INDEX IF NOT EXISTS idx_project_dates ON project(start_date, target_end_date);
 
 CREATE OR REPLACE FUNCTION _trigger_audit_project()
     RETURNS TRIGGER

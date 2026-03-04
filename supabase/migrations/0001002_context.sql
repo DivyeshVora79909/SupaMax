@@ -116,3 +116,15 @@ BEGIN
 END;
 $$;
 
+-- 6. Helper: Expose context to frontend clients natively as JSON
+CREATE OR REPLACE FUNCTION get_client_context()
+    RETURNS jsonb
+    LANGUAGE sql
+    STABLE
+    SECURITY DEFINER
+    SET search_path = public
+    AS $$
+    SELECT
+        row_to_json(get_graph_context())::jsonb;
+$$;
+

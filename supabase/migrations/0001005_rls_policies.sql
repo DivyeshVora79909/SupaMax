@@ -20,11 +20,11 @@ CREATE POLICY "rls_dag_node_select" ON dag_node
         USING ((
             SELECT
                 predicate_has_perm(get_graph_context(), 'GRAPH_READ'))
-                AND (id = ANY ((
+                AND (id IN (
                     SELECT
-                        membership_ids
+                        unnest(membership_ids)
                     FROM
-                        get_graph_context())) OR EXISTS (
+                        get_graph_context()) OR EXISTS (
                             SELECT
                                 1
                             FROM
@@ -40,11 +40,11 @@ CREATE POLICY "rls_dag_edge_select" ON dag_edge
         USING ((
             SELECT
                 predicate_has_perm(get_graph_context(), 'GRAPH_READ'))
-                AND (parent_id = ANY ((
+                AND (parent_id IN (
                     SELECT
-                        membership_ids
+                        unnest(membership_ids)
                     FROM
-                        get_graph_context())) OR EXISTS (
+                        get_graph_context()) OR EXISTS (
                             SELECT
                                 1
                             FROM

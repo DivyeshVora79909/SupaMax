@@ -1,11 +1,20 @@
 CREATE TABLE IF NOT EXISTS contact(
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    name text NOT NULL,
     email text,
     avatar_path text,
     document_path text,
-    status_label text,
+    contact_status text,
     status_order integer DEFAULT 0,
+    first_name text NOT NULL,
+    last_name text NOT NULL,
+    phone text,
+    mobile text,
+    department text,
+    activity_status text, -- 'active', 'dnd', 'primary'
+    contact_type text, -- 'decision_maker', 'influencer', 'user', 'technical'
+    social_links jsonb,
+    profile jsonb,
+    other jsonb,
     account_id uuid NOT NULL REFERENCES account(id) ON DELETE CASCADE,
     created_by_node uuid REFERENCES dag_node(id) ON DELETE SET NULL,
     updated_by_node uuid REFERENCES dag_node(id) ON DELETE SET NULL,
@@ -16,6 +25,10 @@ CREATE TABLE IF NOT EXISTS contact(
 CREATE INDEX IF NOT EXISTS idx_contact_account ON contact(account_id);
 
 CREATE INDEX IF NOT EXISTS idx_contact_email ON contact(email);
+
+CREATE INDEX IF NOT EXISTS idx_contact_name ON contact(last_name, first_name);
+
+CREATE INDEX IF NOT EXISTS idx_contact_status ON contact(contact_status);
 
 CREATE OR REPLACE FUNCTION _trigger_audit_contact()
     RETURNS TRIGGER

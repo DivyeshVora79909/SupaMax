@@ -1,13 +1,29 @@
-CREATE TYPE entity_type AS ENUM(
-    'account',
-    'contact',
-    'opportunity',
-    'project'
+CREATE TYPE label_column AS ENUM(
+    -- Shared
+    'lead_source',
+    'industry',
+    'priority',
+    -- Account
+    'account_status',
+    'account_type',
+    'rating',
+    -- Contact
+    'contact_status',
+    'activity_status',
+    'contact_type',
+    'department',
+    -- Opportunity
+    'opportunity_status',
+    'forecast_category',
+    -- Project
+    'project_status',
+    'health_status',
+    'project_type'
 );
 
 CREATE TABLE IF NOT EXISTS crm_label(
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    entity_type entity_type NOT NULL,
+    column_name label_column NOT NULL,
     label text NOT NULL,
     sort_order integer DEFAULT 0,
     color text,
@@ -17,10 +33,10 @@ CREATE TABLE IF NOT EXISTS crm_label(
     updated_by_node uuid REFERENCES dag_node(id) ON DELETE SET NULL,
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz DEFAULT now(),
-    CONSTRAINT unq_crm_label UNIQUE (owner_id, entity_type, label)
+    CONSTRAINT unq_crm_label UNIQUE (owner_id, column_name, label)
 );
 
-CREATE INDEX IF NOT EXISTS idx_crm_label_lookup ON crm_label(owner_id, entity_type);
+CREATE INDEX IF NOT EXISTS idx_crm_label_lookup ON crm_label(owner_id, column_name);
 
 CREATE OR REPLACE FUNCTION _trigger_audit_crm_label()
     RETURNS TRIGGER
