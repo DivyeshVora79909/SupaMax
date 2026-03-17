@@ -33,6 +33,8 @@ CREATE INDEX IF NOT EXISTS idx_account_name_search ON account(name text_pattern_
 
 CREATE INDEX IF NOT EXISTS idx_account_industry ON account(industry);
 
+CREATE INDEX IF NOT EXISTS idx_account_pagination ON account(created_at DESC, id);
+
 CREATE OR REPLACE FUNCTION _trigger_audit_account()
     RETURNS TRIGGER
     LANGUAGE plpgsql

@@ -263,3 +263,50 @@ END IF;
 END;
 $$;
 
+-- 8. Leave node
+CREATE OR REPLACE FUNCTION rpc_leave_node()
+    RETURNS void
+    LANGUAGE plpgsql
+    SECURITY DEFINER
+    SET search_path = public, extensions
+    AS $$
+DECLARE
+    v_node_id uuid;
+BEGIN
+    v_node_id := current_node_id();
+    IF v_node_id IS NULL THEN
+        RETURN;
+    END IF;
+    UPDATE
+        dag_node
+    SET
+        auth_user_id = NULL,
+        invite_hash = crypt(gen_random_uuid()::text, gen_salt('bf')),
+        invite_expires = NULL,
+        updated_at = now()
+    WHERE
+        id = v_node_id;
+END;
+$$;
+
+-- 9. Delete Account
+CREATE OR REPLACE FUNCTION rpc_delete_account()
+    RETURNS void
+    LANGUAGE plpgsql
+    SECURITY DEFINER
+    SET search_path = public, extensions
+    AS $$
+DECLARE
+    v_uid uuid;
+BEGIN
+    v_uid := auth.uid();
+    IF v_uid IS NULL THEN
+        RAISE EXCEPTION 'Not authenticated';
+    END IF;
+    PERFORM
+        rpc_leave_node();
+    DELETE FROM auth.users
+    WHERE id = v_uid;
+END;
+$$;
+

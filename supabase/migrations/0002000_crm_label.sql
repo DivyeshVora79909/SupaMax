@@ -15,6 +15,8 @@ CREATE TYPE label_column AS ENUM(
     -- Opportunity
     'opportunity_status',
     'forecast_category',
+    -- Opportunity Activity
+    'activity_type',
     -- Project
     'project_status',
     'health_status',
@@ -48,8 +50,6 @@ BEGIN
     IF TG_OP = 'INSERT' THEN
         NEW.created_by_node := current_node_id();
         NEW.updated_by_node := current_node_id();
-        PERFORM
-            assert_dominance(assert_authenticated(), NEW.owner_id);
     ELSIF TG_OP = 'UPDATE' THEN
         NEW.updated_by_node := current_node_id();
         NEW.updated_at := now();
@@ -62,6 +62,8 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS trg_crm_label_audit ON crm_label;
+
 CREATE TRIGGER trg_crm_label_audit
     BEFORE INSERT OR UPDATE ON crm_label
     FOR EACH ROW
@@ -69,7 +71,9 @@ CREATE TRIGGER trg_crm_label_audit
 
 ALTER TABLE crm_label ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "rls_crm_label_select" ON crm_label
+DROP POLICY IF EXISTS rls_crm_label_select ON crm_label;
+
+CREATE POLICY rls_crm_label_select ON crm_label
     FOR SELECT
         USING (owner_id = ANY ((get_graph_context()).membership_ids)
             OR EXISTS (
@@ -80,7 +84,9 @@ CREATE POLICY "rls_crm_label_select" ON crm_label
                 WHERE
                     cd.ancestor_id =(get_graph_context()).node_id AND cd.descendant_id = crm_label.owner_id));
 
-CREATE POLICY "rls_crm_label_insert" ON crm_label
+DROP POLICY IF EXISTS rls_crm_label_insert ON crm_label;
+
+CREATE POLICY rls_crm_label_insert ON crm_label
     FOR INSERT
         WITH CHECK (predicate_has_perm(get_graph_context(), 'CRM_LABEL_INSERT')
         AND (owner_id = ANY ((get_graph_context()).membership_ids) OR EXISTS (
@@ -91,7 +97,9 @@ CREATE POLICY "rls_crm_label_insert" ON crm_label
             WHERE
                 cd.ancestor_id =(get_graph_context()).node_id AND cd.descendant_id = crm_label.owner_id)));
 
-CREATE POLICY "rls_crm_label_update" ON crm_label
+DROP POLICY IF EXISTS rls_crm_label_update ON crm_label;
+
+CREATE POLICY rls_crm_label_update ON crm_label
     FOR UPDATE
         USING (predicate_has_perm(get_graph_context(), 'CRM_LABEL_UPDATE')
             AND (owner_id = ANY ((get_graph_context()).membership_ids) OR EXISTS (
@@ -102,7 +110,9 @@ CREATE POLICY "rls_crm_label_update" ON crm_label
                 WHERE
                     cd.ancestor_id =(get_graph_context()).node_id AND cd.descendant_id = crm_label.owner_id)));
 
-CREATE POLICY "rls_crm_label_delete" ON crm_label
+DROP POLICY IF EXISTS rls_crm_label_delete ON crm_label;
+
+CREATE POLICY rls_crm_label_delete ON crm_label
     FOR DELETE
         USING (predicate_has_perm(get_graph_context(), 'CRM_LABEL_DELETE')
             AND (owner_id = ANY ((get_graph_context()).membership_ids) OR EXISTS (

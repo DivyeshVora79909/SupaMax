@@ -36,6 +36,8 @@ BEGIN
 (62, 'OPP_UPDATE', 'Edit opportunities'),
 (63, 'OPP_DELETE', 'Delete opportunities'),
 (64, 'OPP_ACTIVITY_INSERT', 'Create Activity logs'),
+(65, 'OPP_ACTIVITY_UPDATE', 'Edit explicit opportunity activities'),
+(66, 'OPP_ACTIVITY_DELETE', 'Delete explicit opportunity activities'),
         -- Project
 (70, 'PROJ_SELECT', 'View projects'),
 (71, 'PROJ_INSERT', 'Create projects'),

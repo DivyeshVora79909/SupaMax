@@ -1,348 +1,155 @@
-# SupaMax – Supabase Backend
+# SupaMax
 
-Production‑grade, multi‑tenant Supabase backend with strict RBAC, hierarchical roles, secure storage, and policy‑driven access control.
+A hierarchical, permission-based access control system and CRM built on Supabase. SupaMax implements a Directed Acyclic Graph (DAG) structure for organizational management with granular role-based permissions and a complete CRM suite.
 
----
+## Architecture Overview
 
-## 1. Overview
+### Core Concepts
 
-SupaMax implements:
+- **DAG Structure**: Uses a closure table pattern (`closure_dominance`) for efficient tree traversal and dominance queries
+- **Node Types**:
+  - `user` - Authenticated users with Supabase Auth linkage
+  - `group` - Organizational containers (companies, teams, departments)
+  - `role` - Permission carriers with 256-bit permission bitmaps
+- **Permission System**: 256-bit bitmap allowing for fine-grained capability control
+- **Dominance Model**: Parent nodes control child nodes; permissions flow downward through roles
 
-- **Multi‑tenancy** (tenant‑isolated data)
-- **Hierarchical RBAC** (DAG‑based role tree)
-- **JWT‑embedded permissions** (computed at login)
-- **Strict RLS everywhere** (Postgres‑first security)
-- **Controlled file storage** (Supabase Storage + DB‑backed authorization)
+## Database Schema
 
-Designed for SaaS systems where **roles, permissions, and ownership matter**.
+### Core Graph Tables
 
----
+| Table                 | Purpose                                                        |
+| --------------------- | -------------------------------------------------------------- |
+| `dag_node`            | Stores users, groups, and roles with type-specific constraints |
+| `dag_edge`            | Parent-child relationships forming the DAG                     |
+| `closure_dominance`   | Transitive closure for O(1) dominance checks                   |
+| `permission_manifest` | Maps permission slugs to bit indices (0-255)                   |
 
-## 2. Architecture
+### CRM Module Tables
 
-**Core Layers**
+| Table                  | Purpose                                       |
+| ---------------------- | --------------------------------------------- |
+| `crm_label`            | Configurable labels/statuses for CRM entities |
+| `account`              | Company/organization records                  |
+| `contact`              | People associated with accounts               |
+| `opportunity`          | Sales opportunities linked to accounts        |
+| `project`              | Projects derived from opportunities           |
+| `opportunity_activity` | Audit log for opportunity changes             |
 
-- PostgreSQL (schema, RLS, triggers, functions)
-- Supabase Auth (email‑invite onboarding)
-- Supabase Storage (DB‑verified access)
-- JWT Custom Claims (permissions, hierarchy)
+## Security Model
 
-**Security Model**
+### Row Level Security (RLS)
 
-- No trust in frontend
-- All access enforced at DB level
-- Service Role only for provisioning
+All tables use RLS policies based on:
 
----
+1. **Permission checks** - User must have specific capability bit set
+2. **Dominance checks** - User must dominate (be ancestor of) the resource owner
+3. **Membership checks** - User must belong to the same group/role hierarchy
 
-## 3. Key Concepts
+### Key Security Functions
 
-### Tenant
+- `get_graph_context()` - Returns current user's node ID, effective permissions, and memberships
+- `assert_dominance()` - Validates actor controls target node
+- `assert_permission()` - Validates actor has specific permission
+- `assert_no_escalation()` - Prevents privilege escalation when assigning permissions
 
-Logical organization boundary. All data is tenant‑scoped.
+## API Functions
 
-### Roles
+### Graph Management
 
-- One **root role** per tenant
-- Roles form a **DAG** (not a tree)
-- Closure table used for fast hierarchy queries
+| Function                                        | Permission Required          | Description                          |
+| ----------------------------------------------- | ---------------------------- | ------------------------------------ |
+| `rpc_create_group(parent_id, label)`            | `NODE_CREATE`                | Create new group under parent        |
+| `rpc_create_role(parent_id, label, bits)`       | `NODE_CREATE`, `ROLE_MANAGE` | Create role with permission set      |
+| `rpc_link_node(parent, child)`                  | `EDGE_LINK`                  | Create edge between existing nodes   |
+| `rpc_unlink_node(parent, child)`                | `EDGE_UNLINK`                | Remove edge (prevents orphans)       |
+| `rpc_delete_node(target_id)`                    | `NODE_DELETE`                | Delete leaf node only                |
+| `rpc_invite_user(parent_id, label, expires_in)` | `NODE_CREATE`                | Generate invite token for new user   |
+| `rpc_claim_invite(token)`                       | -                            | Convert invite to authenticated user |
 
-### Permissions
+### Context Helpers
 
-- Flat permission codes (`dl:c`, `rl:u`, etc.)
-- Assigned to roles
-- Injected into JWT at login
+- `current_node_id()` - Get UUID of current auth user in graph
+- `get_client_context()` - JSON context for frontend consumption
+- `get_perm_id(slug)` - Resolve permission slug to bit index
 
-### Visibility Modes
+## Permission Reference
 
-```text
-PRIVATE     → Owner only
-CONTROLLED → Owner + subordinate roles
-PUBLIC      → Permission‑based
-```
+### Graph Structure (0-10)
 
----
+| Bit | Slug          | Description           |
+| --- | ------------- | --------------------- |
+| 0   | `GRAPH_READ`  | View graph structure  |
+| 1   | `NODE_CREATE` | Create nodes          |
+| 2   | `NODE_DELETE` | Delete leaf nodes     |
+| 3   | `EDGE_LINK`   | Link nodes            |
+| 4   | `EDGE_UNLINK` | Unlink nodes          |
+| 10  | `ROLE_MANAGE` | Edit role permissions |
 
-## 4. Database Schema
+### CRM Configuration (31-33)
 
-### Core Tables
+| Bit | Slug               | Description   |
+| --- | ------------------ | ------------- |
+| 31  | `CRM_LABEL_INSERT` | Create labels |
+| 32  | `CRM_LABEL_UPDATE` | Update labels |
+| 33  | `CRM_LABEL_DELETE` | Delete labels |
 
-- `tenants`
-- `roles`
-- `permissions`
-- `role_permissions`
-- `role_hierarchy`
-- `role_closure`
-- `profiles`
-- `invitations`
-- `deals`
+### Account (40-43)
 
-### Why Closure Table?
-
-- O(1) permission checks
-- Efficient subordinate resolution
-- Prevents recursive runtime queries
-
----
-
-## 5. Authentication Flow
-
-1. User is **invited** (`invitations` table)
-2. User signs up via Supabase Auth
-3. `handle_new_user` trigger:
-
-   - Validates invitation
-   - Creates profile
-   - Assigns tenant + role
-
-No invitation → no access.
-
----
-
-## 6. JWT Custom Claims
-
-Injected via `custom_access_token_hook`:
-
-```json
-{
-  "tenant_id": "uuid",
-  "role_id": "uuid",
-  "subordinate_role_ids": ["uuid"],
-  "permissions": ["dl:c", "rl:u"]
-}
-```
-
-Used by:
-
-- RLS policies
-- Access control functions
-
----
-
-## 7. Access Control Engine
-
-Central function:
-
-```sql
-check_resource_access(
-  tenant_id,
-  visibility,
-  owner_id,
-  owner_role_id,
-  prefix,
-  operation
-)
-```
-
-Controls:
-
-- SELECT / INSERT / UPDATE / DELETE
-- Ownership
-- Role hierarchy
-- Explicit permissions
-
-No duplicated logic in policies.
-
----
-
-## 8. Row Level Security (RLS)
-
-Enabled on **all tables**.
-
-Examples:
-
-- Tenants → self only
-- Profiles → self or tenant
-- Roles → tenant‑scoped + permission‑gated
-- Deals → delegated to access engine
-
-Service Role bypasses all checks.
-
----
-
-## 9. Storage Security
-
-Bucket: `deals`
-
-Rules:
-
-- Upload allowed only to `deals`
-- Download/update/delete only if:
-
-  - Matching DB record exists
-  - User has access to that deal
-
-Storage access is **DB‑verified**, not public.
-
----
-
-## 10. Provisioning APIs
-
-### Provision Tenant (Service Role)
-
-```sql
-rpc('provision_tenant', {
-  p_name: 'Acme Corp',
-  p_slug: 'acme',
-  p_admin_email: 'admin@acme.com',
-  p_role_name: 'Admin',
-  p_permissions: ['dl:c','dl:r','dl:u','dl:d']
-})
-```
-
-Creates:
-
-- Tenant
-- Root role
-- Permissions
-- Admin invitation
-
-Atomic and secure.
-
----
-
-## 11. Safety Guarantees
-
-Enforced via triggers:
-
-- No permission escalation
-- No role escalation
-- Single root per tenant
-- Root role immutable
-- DAG cycle prevention
-
-Impossible to break hierarchy accidentally.
-
----
-
-## 12. Local Development
+| Bit | Slug             | Description     |
+| --- | ---------------- | --------------- |
+| 40  | `ACCOUNT_SELECT` | View accounts   |
+| 41  | `ACCOUNT_INSERT` | Create accounts |
+| 42  | `ACCOUNT_UPDATE` | Edit accounts   |
+| 43  | `ACCOUNT_DELETE` | Delete accounts |
+
+### Contact (50-53)
+
+| Bit | Slug             | Description     |
+| --- | ---------------- | --------------- |
+| 50  | `CONTACT_SELECT` | View contacts   |
+| 51  | `CONTACT_INSERT` | Create contacts |
+| 52  | `CONTACT_UPDATE` | Edit contacts   |
+| 53  | `CONTACT_DELETE` | Delete contacts |
+
+### Opportunity (60-66)
+
+| Bit | Slug                  | Description          |
+| --- | --------------------- | -------------------- |
+| 60  | `OPP_SELECT`          | View opportunities   |
+| 61  | `OPP_INSERT`          | Create opportunities |
+| 62  | `OPP_UPDATE`          | Edit opportunities   |
+| 63  | `OPP_DELETE`          | Delete opportunities |
+| 64  | `OPP_ACTIVITY_INSERT` | Log activities       |
+| 65  | `OPP_ACTIVITY_UPDATE` | Edit activities      |
+| 66  | `OPP_ACTIVITY_DELETE` | Delete activities    |
+
+### Project (70-73)
+
+| Bit | Slug          | Description     |
+| --- | ------------- | --------------- |
+| 70  | `PROJ_SELECT` | View projects   |
+| 71  | `PROJ_INSERT` | Create projects |
+| 72  | `PROJ_UPDATE` | Edit projects   |
+| 73  | `PROJ_DELETE` | Delete projects |
+
+## Deployment
+
+### Prerequisites
+
+- Supabase CLI installed
+- PostgreSQL 14+ (for local development)
+- Node.js environment (for edge functions if applicable)
+
+### Deploy
 
 ```bash
-supabase start
-supabase stop
-supabase db reset
-supabase status
-```
+# Login to Supabase
+supabase login
 
-Service Logs:
+# Link to your project
+supabase link --project-ref &lt;your-project-ref&gt;
 
-| Service | Container                |
-| ------- | ------------------------ |
-| API     | supabase_kong_SupaMax    |
-| DB      | supabase_db_SupaMax      |
-| Auth    | supabase_auth_SupaMax    |
-| Storage | supabase_storage_SupaMax |
-
----
-
-## 13. Configuration Notes
-
-- SMTP via SendGrid
-- Auth email‑only
-- Anonymous auth disabled
-- Storage S3‑compatible
-
-All secrets via environment variables.
-
----
-
-## 14. Intended Use
-
-Ideal for:
-
-- B2B SaaS
-- Internal enterprise tools
-- Role‑heavy platforms
-- Compliance‑sensitive systems
-
----
-
-## 15. Philosophy
-
-- Database is the authority
-- JWTs are derived, not trusted
-- UI is disposable
-- Security is structural, not conditional
-
----
-
-## 16. Example: End-to-End Tenant Bootstrap
-
-### Provision tenant
-
-```bash
--- 1. ELEVATE PRIVILEGES
-SET LOCAL request.jwt.claim.role = 'service_role';
-
-DO $$ DECLARE
-    v_tenant_name TEXT := 'Acme Corp';
-    v_tenant_slug TEXT := 'acme';
-    v_email TEXT := 'div@gmail.com';
-    v_password TEXT := 'password';
-    v_provision_result JSON;
-    v_user_id UUID;
-BEGIN
-    -- A. CLEANUP (Reset for fresh seed)
-    -- 1. Delete Auth User
-    DELETE FROM auth.users WHERE email = v_email;
-
-    -- 2. Delete Tenant (Cascades to Roles, Invitations, Profiles, Deals)
-    DELETE FROM public.tenants WHERE slug = v_tenant_slug;
-
-    -- B. PROVISION TENANT STRUCTURE
-    -- This call assumes you applied the fix to 'provision_tenant' (Explicit UUIDs)
-    -- It creates: Tenant, Root Role, Permissions, Invitation
-    SELECT public.provision_tenant(
-        p_name := v_tenant_name,
-        p_slug := v_tenant_slug,
-        p_admin_email := v_email,
-        p_role_name := 'Owner'
-    ) INTO v_provision_result;
-
-    RAISE NOTICE 'Tenant Structure Provisioned: %', v_provision_result;
-
-    -- C. CREATE AUTH USER
-    -- Inserting into auth.users fires the 'handle_new_user' trigger.
-    -- That trigger finds the invitation created in Step B and creates the profile.
-
-    v_user_id := gen_random_uuid();
-
-    INSERT INTO auth.users (
-        instance_id,
-        id,
-        aud,
-        role,
-        email,
-        encrypted_password,
-        email_confirmed_at,
-        raw_app_meta_data,
-        raw_user_meta_data,
-        created_at,
-        updated_at,
-
-        -- Supabase requires these to be strings, not NULL
-        confirmation_token,
-        recovery_token,
-        email_change_token_new,
-        email_change
-    ) VALUES (
-        '00000000-0000-0000-0000-000000000000', -- Standard Supabase Instance ID
-        v_user_id,
-        'authenticated',
-        'authenticated',
-        v_email,
-        crypt(v_password, gen_salt('bf')),
-        now(), -- Auto-confirm email
-        '{"provider": "email", "providers": ["email"]}',
-        '{"full_name": "Super Admin"}',
-        now(),
-        now(),
-
-        -- Empty Strings (Supabase crashes on NULL here)
-        '', '', '', ''
-    );
-
-    RAISE NOTICE 'SUCCESS: User created. Login with % / %', v_email, v_password;
-END $$;
-
+# Push migrations to database
+supabase db push --password &lt;your-db-password&gt;
 ```

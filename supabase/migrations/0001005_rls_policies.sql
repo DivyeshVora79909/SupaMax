@@ -20,19 +20,23 @@ CREATE POLICY "rls_dag_node_select" ON dag_node
         USING ((
             SELECT
                 predicate_has_perm(get_graph_context(), 'GRAPH_READ'))
-                AND (id IN (
+                AND (EXISTS (
                     SELECT
-                        unnest(membership_ids)
+                        1
                     FROM
-                        get_graph_context()) OR EXISTS (
+                        closure_dominance cd
+                    WHERE
+                        cd.ancestor_id =(
                             SELECT
-                                1
-                            FROM
-                                closure_dominance cd
-                            WHERE
-                                cd.ancestor_id =(
+                                current_node_id()) AND cd.descendant_id = dag_node.id) OR (dag_node.type IN ('group', 'role') AND EXISTS (
                                     SELECT
-                                        current_node_id()) AND cd.descendant_id = dag_node.id)));
+                                        1
+                                    FROM
+                                        closure_dominance cd
+                                    WHERE
+                                        cd.descendant_id =(
+                                            SELECT
+                                                current_node_id()) AND cd.ancestor_id = dag_node.id AND cd.depth = 1))));
 
 -- 2. Edge Policy (Consolidated Upward + Downward)
 CREATE POLICY "rls_dag_edge_select" ON dag_edge
@@ -40,17 +44,15 @@ CREATE POLICY "rls_dag_edge_select" ON dag_edge
         USING ((
             SELECT
                 predicate_has_perm(get_graph_context(), 'GRAPH_READ'))
-                AND (parent_id IN (
+                AND (EXISTS (
                     SELECT
-                        unnest(membership_ids)
+                        1
                     FROM
-                        get_graph_context()) OR EXISTS (
+                        closure_dominance cd
+                    WHERE
+                        cd.ancestor_id =(
                             SELECT
-                                1
-                            FROM
-                                closure_dominance cd
-                            WHERE
-                                cd.ancestor_id =(
+                                current_node_id()) AND cd.descendant_id = dag_edge.parent_id) OR (dag_edge.child_id =(
                                     SELECT
-                                        current_node_id()) AND cd.descendant_id = dag_edge.parent_id)));
+                                        current_node_id()))));
 
